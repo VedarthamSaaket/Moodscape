@@ -1,0 +1,379 @@
+/* ═══════════════════════════════════════════════════════════════════
+   GeneratorPage.additions.css
+   Append to your existing generator stylesheet.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── Beams background ─────────────────────────────────────────────── */
+
+.gen-beams-bg {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    /* Strong: high opacity, beams are a clear visual feature */
+    opacity: 0.82;
+    pointer-events: none;
+}
+
+/* card on top of beams */
+.gen-card {
+    position: relative;
+    z-index: 1;
+}
+
+/* ── Font visibility (brighter + larger throughout) ───────────────── */
+
+.gen-label {
+    font-size: 0.79rem;
+    letter-spacing: 0.13em;
+    color: rgba(224, 238, 252, 0.94);
+    text-shadow: 0 1px 8px rgba(0, 0, 0, 0.65);
+}
+
+.gen-label-optional {
+    opacity: 0.60;
+    font-size: 0.72rem;
+}
+
+.gen-eyebrow {
+    font-size: 0.73rem;
+    letter-spacing: 0.18em;
+    color: rgba(200, 222, 242, 0.82);
+    text-shadow: 0 1px 8px rgba(0, 0, 0, 0.5);
+}
+
+.gen-subtitle {
+    font-family: var(--font-display, Georgia, serif);
+    font-style: italic;
+    font-weight: 300;
+    font-size: 1.08rem;
+    letter-spacing: 0.03em;
+    line-height: 1.75;
+    background: linear-gradient(110deg,
+            rgba(232, 244, 255, 0.92) 0%,
+            rgba(185, 214, 238, 0.84) 50%,
+            rgba(162, 188, 222, 0.78) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    max-width: 400px;
+}
+
+.gen-field-hint {
+    font-size: 0.82rem;
+    color: rgba(188, 214, 236, 0.74);
+    margin-top: 6px;
+    text-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+}
+
+.gen-input,
+.gen-textarea,
+.gen-select {
+    font-size: 0.93rem;
+    color: rgba(226, 240, 252, 0.96);
+}
+
+.gen-input::placeholder,
+.gen-textarea::placeholder {
+    color: rgba(158, 192, 218, 0.48);
+}
+
+.gen-track-title {
+    font-size: 0.88rem;
+    color: rgba(222, 237, 250, 0.96);
+    text-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+
+.gen-track-artist {
+    font-size: 0.78rem;
+    color: rgba(168, 200, 222, 0.76);
+}
+
+.gen-track-num {
+    font-size: 0.72rem;
+    color: rgba(158, 192, 218, 0.52);
+}
+
+.gen-playlist-title {
+    font-size: 1.22rem;
+    color: rgba(226, 242, 255, 0.97);
+    text-shadow: 0 2px 10px rgba(0, 0, 0, 0.6);
+}
+
+.gen-playlist-meta {
+    font-size: 0.78rem;
+    color: rgba(168, 200, 225, 0.62);
+    margin-top: 3px;
+}
+
+.gen-connect-heading {
+    font-size: 0.96rem;
+    color: rgba(222, 238, 252, 0.94);
+    font-weight: 500;
+}
+
+.gen-connect-sub {
+    font-size: 0.83rem;
+    color: rgba(174, 206, 230, 0.74);
+}
+
+.gen-indian-heading {
+    font-size: 0.86rem;
+    letter-spacing: 0.05em;
+    color: rgba(210, 232, 250, 0.90);
+}
+
+/* ── Label row (label + pill count badge) ─────────────────────────── */
+
+.gen-label-row {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.gen-pill-count {
+    font-size: 0.68rem;
+    letter-spacing: 0.06em;
+    color: rgba(130, 185, 220, 0.70);
+    font-family: var(--font-body, sans-serif);
+}
+
+/* ── Multi-select pill grid ───────────────────────────────────────── */
+
+.gen-pill-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px;
+}
+
+.gen-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 13px;
+    font-size: 0.75rem;
+    letter-spacing: 0.04em;
+    font-family: var(--font-body, sans-serif);
+    border: 1px solid rgba(130, 172, 204, 0.22);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.04);
+    color: rgba(188, 215, 238, 0.78);
+    cursor: pointer;
+    transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+    text-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+    user-select: none;
+    white-space: nowrap;
+}
+
+.gen-pill:hover:not(.gen-pill--maxed) {
+    border-color: rgba(130, 172, 204, 0.50);
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(215, 234, 250, 0.96);
+}
+
+.gen-pill--active {
+    background: rgba(74, 127, 160, 0.30);
+    border-color: rgba(95, 158, 200, 0.72);
+    color: rgba(202, 230, 250, 1);
+    text-shadow: 0 0 10px rgba(95, 158, 200, 0.40);
+}
+
+.gen-pill--maxed {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+.gen-pill-check {
+    font-size: 0.64rem;
+    opacity: 0.80;
+}
+
+/* ── Name + cover row ─────────────────────────────────────────────── */
+
+.gen-name-cover-row {
+    display: flex;
+    align-items: flex-end;
+    gap: 14px;
+}
+
+.gen-name-field {
+    flex: 1;
+}
+
+.gen-cover-col {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.gen-cover-thumb-wrap {
+    position: relative;
+    width: 66px;
+    height: 66px;
+}
+
+.gen-cover-thumb {
+    width: 66px;
+    height: 66px;
+    border-radius: 8px;
+    border: 1px solid rgba(130, 172, 204, 0.22);
+    display: block;
+    object-fit: cover;
+}
+
+.gen-cover-reroll {
+    position: absolute;
+    bottom: -9px;
+    right: -9px;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: rgba(18, 42, 62, 0.92);
+    border: 1px solid rgba(130, 172, 204, 0.36);
+    color: rgba(200, 228, 248, 0.85);
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: transform 0.22s ease, border-color 0.18s ease;
+    line-height: 1;
+}
+
+.gen-cover-reroll:hover {
+    transform: rotate(90deg);
+    border-color: rgba(95, 158, 200, 0.65);
+}
+
+/* ── Results header with cover ────────────────────────────────────── */
+
+.gen-results-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+.gen-results-left {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+
+.gen-results-cover {
+    width: 54px;
+    height: 54px;
+    border-radius: 7px;
+    border: 1px solid rgba(130, 172, 204, 0.22);
+    object-fit: cover;
+    flex-shrink: 0;
+}
+
+/* ── Suggest similar button ───────────────────────────────────────── */
+
+/* The track item needs to accommodate the suggest button */
+.gen-track {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.gen-track-inner {
+    flex: 1;
+    min-width: 0;
+}
+
+.gen-suggest-btn {
+    flex-shrink: 0;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    border: 1px solid rgba(100, 155, 200, 0.30);
+    background: rgba(40, 80, 115, 0.14);
+    color: rgba(168, 210, 238, 0.72);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    margin-left: 8px;
+    transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease, transform 0.15s ease;
+    font-size: 13px;
+}
+
+.gen-suggest-btn:hover:not(:disabled) {
+    background: rgba(74, 127, 160, 0.32);
+    border-color: rgba(100, 165, 210, 0.60);
+    color: rgba(200, 230, 250, 0.92);
+    transform: scale(1.12);
+}
+
+.gen-suggest-btn--done {
+    border-color: rgba(80, 185, 120, 0.50);
+    background: rgba(50, 140, 90, 0.18);
+    color: rgba(120, 220, 155, 0.90);
+    cursor: default;
+}
+
+.gen-suggest-btn--error {
+    border-color: rgba(200, 100, 80, 0.50);
+    color: rgba(220, 140, 120, 0.90);
+}
+
+/* Remove Track Button */
+.gen-track-remove {
+    flex-shrink: 0;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    border: 1px solid transparent;
+    background: transparent;
+    color: rgba(168, 210, 238, 0.45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    margin-left: 6px;
+    font-size: 11px;
+    transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease, transform 0.15s ease;
+}
+
+.gen-track-remove:hover {
+    background: rgba(40, 80, 115, 0.14);
+    border-color: rgba(200, 100, 80, 0.40);
+    color: rgba(230, 150, 130, 0.90);
+    transform: scale(1.1);
+}
+
+/* Spinner ring inside suggest button */
+.gen-spin-ring {
+    display: block;
+    width: 12px;
+    height: 12px;
+    border: 1.5px solid rgba(168, 210, 238, 0.30);
+    border-top-color: rgba(168, 210, 238, 0.85);
+    border-radius: 50%;
+    animation: gen-spin 0.7s linear infinite;
+}
+
+@keyframes gen-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Hint below tracklist */
+.gen-suggest-hint {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 18px;
+    padding-top: 16px;
+    border-top: 1px solid rgba(130, 172, 204, 0.10);
+    font-size: 0.76rem;
+    color: rgba(158, 195, 222, 0.55);
+    letter-spacing: 0.02em;
+    text-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}

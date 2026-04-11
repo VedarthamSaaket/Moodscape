@@ -1,0 +1,13 @@
+# File: backend/requirements.txt
+# backend/requirements.txt
+fastapi
+uvicorn[standard]
+python-dotenv
+requests
+psycopg2-binary
+bcrypt
+email-validator
+Pillow
+spotipy
+torch
+transformers

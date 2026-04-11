@@ -1,0 +1,14 @@
+# Python
+.venv/
+backend/.venv/
+__pycache__/
+backend/.cache
+backend/.env
+*.pyc
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# Custom
+demo.py
