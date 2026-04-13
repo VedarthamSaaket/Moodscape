@@ -13,9 +13,6 @@ from fastapi import Request, HTTPException
 from fastapi.responses import JSONResponse, RedirectResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Structured logger
-# ─────────────────────────────────────────────────────────────────────────────
 logger = logging.getLogger("moodscape.security")
 if not logger.handlers:
     handler = logging.StreamHandler()
@@ -24,7 +21,7 @@ if not logger.handlers:
     logger.setLevel(logging.INFO)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Sensitive-field scrubber  (used before anything hits logs)
+# Sensitive-field scrubber
 # ─────────────────────────────────────────────────────────────────────────────
 _SENSITIVE = {
     "password", "password_hash", "access_token", "refresh_token",
@@ -46,7 +43,97 @@ def scrub_sensitive_from_log(data: dict) -> dict:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Secrets validation  – server refuses to boot if any required var is missing
+# Input sanitisation
+# ─────────────────────────────────────────────────────────────────────────────
+
+_SQL_INJECTION_RE = re.compile(
+    r"(\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|EXEC|UNION|SCRIPT)\b|--|;|/\*|\*/)",
+    re.IGNORECASE,
+)
+_XSS_RE = re.compile(
+    r"(<script|javascript:|on\w+=|<iframe|<object|<embed|<link\s+rel)",
+    re.IGNORECASE,
+)
+# Characters that could manipulate Spotify search query syntax
+_SEARCH_INJECTION_RE = re.compile(r'["\\\x00-\x1f]')
+
+_ALLOWED_LANGUAGE_RE = re.compile(r'^[a-zA-Z /\(\)\-]+$')
+_ALLOWED_GENRE_RE    = re.compile(r'^[a-zA-Z0-9 /\(\)\-&+]+$')
+_ALLOWED_MOVIE_RE    = re.compile(r'^[a-zA-Z0-9 \'\-\.,&]+$')
+
+
+def sanitise_user_text(text: str, field_name: str = "input", max_len: int = 500) -> str:
+    """
+    Validate and clean free-text fields (moodText, playlistIntent) before
+    sending to HuggingFace or using in search query construction.
+    Raises HTTP 400 on injection patterns.
+    """
+    if not isinstance(text, str):
+        return ""
+    text = text.strip()
+    if len(text) > max_len:
+        raise HTTPException(status_code=400, detail=f"{field_name} must be {max_len} characters or fewer.")
+    if _SQL_INJECTION_RE.search(text):
+        logger.warning("[SANITISE] SQL injection pattern in %s: %s", field_name, text[:60])
+        raise HTTPException(status_code=400, detail=f"Invalid characters in {field_name}.")
+    if _XSS_RE.search(text):
+        logger.warning("[SANITISE] XSS pattern in %s: %s", field_name, text[:60])
+        raise HTTPException(status_code=400, detail=f"Invalid content in {field_name}.")
+    return text
+
+
+def sanitise_search_token(value: str, field_name: str = "field", max_len: int = 100) -> str:
+    """
+    Clean individual tokens (movie names, genre, language) that are
+    interpolated into Spotify search query strings.
+    """
+    if not isinstance(value, str):
+        return ""
+    value = value.strip()[:max_len]
+    # Strip characters that would break or manipulate search query structure
+    value = _SEARCH_INJECTION_RE.sub("", value)
+    return value
+
+
+def sanitise_language(lang: str) -> str:
+    lang = lang.strip()[:50]
+    if not _ALLOWED_LANGUAGE_RE.match(lang):
+        raise HTTPException(status_code=400, detail=f"Invalid language value: {lang!r}")
+    return lang
+
+
+def sanitise_genre(genre: str) -> str:
+    genre = genre.strip()[:80]
+    if not _ALLOWED_GENRE_RE.match(genre):
+        raise HTTPException(status_code=400, detail=f"Invalid genre value: {genre!r}")
+    return genre
+
+
+def sanitise_movie(movie: str) -> str:
+    movie = movie.strip()[:120]
+    if not _ALLOWED_MOVIE_RE.match(movie):
+        raise HTTPException(status_code=400, detail=f"Invalid movie name: {movie!r}")
+    return movie
+
+
+def validate_spotify_token(token: str) -> str:
+    """
+    Structural validation of a Spotify Bearer token before use.
+    Spotify access tokens are Base64url strings, typically 100–400 chars.
+    Raises HTTP 401 on clearly malformed tokens.
+    """
+    if not token or not isinstance(token, str):
+        raise HTTPException(status_code=401, detail="Missing Spotify token.")
+    token = token.strip()
+    if len(token) < 20 or len(token) > 512:
+        raise HTTPException(status_code=401, detail="Malformed Spotify token.")
+    if not re.match(r'^[A-Za-z0-9\-_=+/]+$', token):
+        raise HTTPException(status_code=401, detail="Malformed Spotify token.")
+    return token
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Secrets validation
 # ─────────────────────────────────────────────────────────────────────────────
 REQUIRED_SECRETS = [
     "DATABASE_URL",
@@ -74,7 +161,7 @@ def validate_secrets() -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 # HMAC-signed session token
 # ─────────────────────────────────────────────────────────────────────────────
-_SESSION_SECRET: str = ""   # initialised lazily from env so import order is safe
+_SESSION_SECRET: str = ""
 
 def _get_session_secret() -> str:
     global _SESSION_SECRET
@@ -83,7 +170,7 @@ def _get_session_secret() -> str:
     return _SESSION_SECRET
 
 
-SESSION_TTL_SECONDS = 7 * 24 * 3600   # 7 days
+SESSION_TTL_SECONDS = 7 * 24 * 3600
 
 def generate_session_token(email: str) -> str:
     ts      = str(int(time.time()))
@@ -97,13 +184,7 @@ def generate_session_token(email: str) -> str:
 
 
 def verify_session_token(token: str) -> str:
-    """
-    Returns the verified email on success.
-    Raises HTTPException(401) on any failure.
-    """
     try:
-        # token format: email:timestamp:hmac_hex
-        # We split from the right so emails with colons are handled safely
         parts = token.rsplit(":", 2)
         if len(parts) != 3:
             raise ValueError("bad format")
@@ -127,10 +208,6 @@ def verify_session_token(token: str) -> str:
 
 
 def require_session_token(request: Request) -> str:
-    """
-    Convenience extractor — pulls X-Session-Token from headers and verifies it.
-    Returns the verified email.
-    """
     token = request.headers.get("X-Session-Token", "").strip()
     if not token:
         raise HTTPException(status_code=401, detail="Missing X-Session-Token header.")
@@ -142,8 +219,8 @@ def require_session_token(request: Request) -> str:
 # ─────────────────────────────────────────────────────────────────────────────
 class SlidingWindowRateLimiter:
     def __init__(self) -> None:
-        self._lock:    threading.Lock                  = threading.Lock()
-        self._windows: dict[str, list[float]]          = defaultdict(list)
+        self._lock:    threading.Lock         = threading.Lock()
+        self._windows: dict[str, list[float]] = defaultdict(list)
 
     def is_allowed(self, key: str, max_requests: int, window_seconds: int) -> bool:
         now    = time.time()
@@ -170,7 +247,6 @@ class SlidingWindowRateLimiter:
 
 limiter = SlidingWindowRateLimiter()
 
-# Background thread — runs cleanup every 10 minutes so memory never grows unbounded
 def _start_cleanup_scheduler() -> None:
     def _loop() -> None:
         while True:
@@ -184,12 +260,11 @@ def _start_cleanup_scheduler() -> None:
 
 _start_cleanup_scheduler()
 
-# Rate-limit rules: path → (max_requests, window_seconds)
 _RATE_RULES: dict[str, tuple[int, int]] = {
-    "/api/signin":             (10,  60),    # 10 / minute
-    "/api/signup":             (5,  300),    # 5  / 5 min
+    "/api/signin":             (10,  60),
+    "/api/signup":             (5,  300),
     "/api/verify-email":       (10,  60),
-    "/api/resend-verify-code": (3,  300),    # 3  / 5 min
+    "/api/resend-verify-code": (3,  300),
     "/api/create-playlist":    (30,  60),
     "/api/add-tracks":         (30,  60),
     "/api/similar-tracks":     (20,  60),
@@ -216,9 +291,9 @@ _auth_failures: dict[str, list[float]] = defaultdict(list)
 _blocked_ips:   dict[str, float]       = {}
 _auth_lock = threading.Lock()
 
-AUTH_FAIL_MAX    = 20     # failures inside the window triggers a block
-AUTH_FAIL_WINDOW = 120    # 2-minute rolling window
-IP_BLOCK_SECS    = 600   # 10-minute block
+AUTH_FAIL_MAX    = 20
+AUTH_FAIL_WINDOW = 120
+IP_BLOCK_SECS    = 600
 
 def get_client_ip(request: Request) -> str:
     forwarded = request.headers.get("X-Forwarded-For", "")
@@ -269,11 +344,6 @@ _AUTH_PATHS = frozenset({
 })
 
 def check_bot_signals(request: Request) -> Optional[str]:
-    """
-    Returns a human-readable block reason if the request looks like a bot,
-    or None if the request looks legitimate.
-    Only enforced on auth-sensitive paths.
-    """
     if request.url.path not in _AUTH_PATHS:
         return None
     ua = request.headers.get("User-Agent", "").strip()
@@ -307,7 +377,7 @@ _SECURITY_HEADERS: dict[str, str] = {
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Central SecurityMiddleware  (add to app AFTER CORSMiddleware)
+# Central SecurityMiddleware
 # ─────────────────────────────────────────────────────────────────────────────
 class SecurityMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
@@ -315,12 +385,10 @@ class SecurityMiddleware(BaseHTTPMiddleware):
         ip    = get_client_ip(request)
         path  = request.url.path
 
-        # 1. Force HTTPS in production
         if os.getenv("FORCE_HTTPS") == "true" and request.url.scheme == "http":
             https_url = str(request.url).replace("http://", "https://", 1)
             return RedirectResponse(url=https_url, status_code=301)
 
-        # 2. Reject blocked IPs immediately
         if is_ip_blocked(ip):
             logger.warning(f"[SECURITY] Blocked IP {ip} attempted {path}")
             return JSONResponse(
@@ -328,13 +396,11 @@ class SecurityMiddleware(BaseHTTPMiddleware):
                 content={"detail": "Too many failed attempts. Please try again later."},
             )
 
-        # 3. Bot detection
         bot_reason = check_bot_signals(request)
         if bot_reason:
             logger.warning(f"[BOT] {ip} blocked on {path}: {bot_reason}")
             return JSONResponse(status_code=403, content={"detail": "Access denied."})
 
-        # 4. Rate limiting
         try:
             check_rate_limit(request)
         except HTTPException as exc:
@@ -343,15 +409,12 @@ class SecurityMiddleware(BaseHTTPMiddleware):
                 content={"detail": exc.detail},
             )
 
-        # 5. Process request
         response   = await call_next(request)
         elapsed_ms = (time.time() - start) * 1000
 
-        # 6. Inject security headers on every response
         for header, value in _SECURITY_HEADERS.items():
             response.headers[header] = value
 
-        # 7. Structured access log; flag slow responses as anomalies
         entry = {
             "ip":     ip,
             "method": request.method,
@@ -375,10 +438,6 @@ def assert_owns_resource(
     resource_owner_email: str,
     resource_label: str = "resource",
 ) -> None:
-    """
-    Raises 403 if the requesting user is not the resource owner.
-    Drop this into any endpoint that reads / modifies per-user data.
-    """
     if requesting_email.lower().strip() != resource_owner_email.lower().strip():
         logger.warning(
             f"[IDOR] {requesting_email} attempted access to {resource_label} "
@@ -391,10 +450,6 @@ def assert_owns_resource(
 
 
 def safe_email_lookup(conn, email: str) -> Optional[dict]:
-    """
-    Fetches only the columns the app actually needs for the given email.
-    Returns None (not raises) when the row is missing — callers decide the error.
-    """
     try:
         with conn.cursor() as cur:
             cur.execute(

@@ -24,10 +24,8 @@ from pydantic                 import BaseModel, EmailStr
 from spotipy.oauth2           import SpotifyOAuth
 from typing                   import Optional
 
-# ── load env FIRST ───────────────────────────────────────────────────────────
 load_dotenv()
 
-# ── security module ──────────────────────────────────────────────────────────
 from security import (
     SecurityMiddleware,
     validate_secrets,
@@ -37,9 +35,14 @@ from security import (
     record_auth_failure,
     get_client_ip,
     scrub_sensitive_from_log,
+    sanitise_user_text,
+    sanitise_search_token,
+    sanitise_language,
+    sanitise_genre,
+    sanitise_movie,
+    validate_spotify_token,
 )
 
-# ── env vars ─────────────────────────────────────────────────────────────────
 DATABASE_URL          = os.getenv("DATABASE_URL")
 HF_API_TOKEN          = os.getenv("HF_API_TOKEN")
 SPOTIFY_CLIENT_ID     = os.getenv("SPOTIFY_CLIENT_ID")
@@ -56,9 +59,6 @@ if not logger.handlers:
     logger.addHandler(_h)
     logger.setLevel(logging.INFO)
 
-# ─────────────────────────────────────────────────────────────────────────────
-# DB connection pool
-# ─────────────────────────────────────────────────────────────────────────────
 _db_pool: Optional[pg_pool.ThreadedConnectionPool] = None
 
 def init_db_pool() -> None:
@@ -87,9 +87,7 @@ def release_db_connection(conn) -> None:
         except Exception as exc:
             logger.error(f"[DB] Pool.putconn error: {exc}")
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Lifespan — secrets validation + pool init on startup
-# ─────────────────────────────────────────────────────────────────────────────
+
 @asynccontextmanager
 async def lifespan(application: FastAPI):
     validate_secrets()
@@ -99,9 +97,7 @@ async def lifespan(application: FastAPI):
         _db_pool.closeall()
         logger.info("[SHUTDOWN] DB connection pool closed.")
 
-# ─────────────────────────────────────────────────────────────────────────────
-# App
-# ─────────────────────────────────────────────────────────────────────────────
+
 app = FastAPI(lifespan=lifespan)
 
 origins = [
@@ -114,8 +110,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Session-Token"],
 )
 app.add_middleware(SecurityMiddleware)
 
@@ -185,13 +181,28 @@ class SimilarTracksRequest(BaseModel):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# _DUMMY_HASH — module-level constant so bcrypt rounds=12 is paid once at
+# import time, not on every failed login attempt.
+# ─────────────────────────────────────────────────────────────────────────────
+_DUMMY_HASH = bcrypt.hashpw(b"dummy_constant_password_for_timing", bcrypt.gensalt(rounds=12))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Global ThreadPoolExecutor — single shared pool instead of per-request pools.
+# max_workers=12 across ALL concurrent requests; prevents a single user from
+# exhausting the thread budget and starving other users.
+# ─────────────────────────────────────────────────────────────────────────────
+_GLOBAL_EXECUTOR = ThreadPoolExecutor(max_workers=12)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Email
 # ─────────────────────────────────────────────────────────────────────────────
 def send_email(to: str, subject: str, html: str) -> bool:
     pwd = (GMAIL_APP_PASSWORD or "").replace(" ", "")
     for attempt in range(2):
         try:
-            msg           = MIMEMultipart("alternative")
+            msg            = MIMEMultipart("alternative")
             msg["Subject"] = subject
             msg["From"]    = f"MoodScape <{GMAIL_USER}>"
             msg["To"]      = to
@@ -206,7 +217,7 @@ def send_email(to: str, subject: str, html: str) -> bool:
             return True
         except smtplib.SMTPAuthenticationError:
             logger.error("[EMAIL] ✗ Auth failed — check GMAIL_USER and GMAIL_APP_PASSWORD in .env")
-            return False   # no point retrying auth errors
+            return False
         except Exception as exc:
             if attempt == 0:
                 logger.warning(f"[EMAIL] attempt 1 failed ({exc}), retrying in 2s…")
@@ -262,13 +273,9 @@ def verification_html(code: str) -> str:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Spotify playlist ownership verification  (IDOR guard)
+# Spotify playlist ownership verification (IDOR guard)
 # ─────────────────────────────────────────────────────────────────────────────
 def verify_playlist_ownership(access_token: str, playlist_id: str, spotify_user_id: str) -> None:
-    """
-    Raises 403 if the Spotify playlist does not belong to spotify_user_id.
-    This prevents one user from writing tracks into another user's playlist.
-    """
     try:
         res = requests.get(
             f"https://api.spotify.com/v1/playlists/{playlist_id}",
@@ -294,12 +301,8 @@ def verify_playlist_ownership(access_token: str, playlist_id: str, spotify_user_
 # Auth endpoints
 # ─────────────────────────────────────────────────────────────────────────────
 
-# ── DUMMY HASH — used to keep signin timing constant when the email doesn't exist
-_DUMMY_HASH = bcrypt.hashpw(b"dummy_constant_password_for_timing", bcrypt.gensalt(rounds=12))
-
 @app.post("/api/signup", status_code=201)
 def signup_user(user: UserCreate, request: Request):
-    # Password minimum length enforced here
     if len(user.password) < 8:
         raise HTTPException(status_code=400, detail="Password must be at least 8 characters.")
 
@@ -307,7 +310,6 @@ def signup_user(user: UserCreate, request: Request):
     if not conn:
         raise HTTPException(status_code=500, detail="Database connection failed")
 
-    # bcrypt rounds=12 for stronger hashing
     hashed = bcrypt.hashpw(user.password.encode(), bcrypt.gensalt(rounds=12))
     code   = str(random.randint(100000, 999999))
     expiry = datetime.utcnow() + timedelta(minutes=15)
@@ -363,7 +365,6 @@ def verify_email(data: VerifyEmail):
                 return {"message": "Email already verified. Please sign in."}
             if datetime.utcnow() > db_expiry:
                 raise HTTPException(status_code=400, detail="Code expired — click 'Resend code'.")
-            # Timing-safe comparison prevents brute-force enumeration of codes
             if not hmac.compare_digest(data.code.strip(), db_code.strip()):
                 raise HTTPException(status_code=400, detail="Incorrect code. Try again.")
 
@@ -434,8 +435,6 @@ def signin_user(user: UserLogin, request: Request):
         release_db_connection(conn)
 
     if not result:
-        # Dummy bcrypt run so timing is identical whether the email exists or not
-        # — prevents user-enumeration via response timing
         bcrypt.checkpw(user.password.encode(), _DUMMY_HASH)
         record_auth_failure(ip)
         raise HTTPException(status_code=401, detail="Invalid credentials.")
@@ -452,7 +451,6 @@ def signin_user(user: UserLogin, request: Request):
             detail="Please verify your email before signing in. Check your inbox or request a new code.",
         )
 
-    # Return a signed HMAC session token — never exposes the raw email alone
     session_token = generate_session_token(user.email)
     return {"message": "Sign in successful.", "session_token": session_token}
 
@@ -475,9 +473,6 @@ def spotify_callback(code: str):
         raise HTTPException(status_code=400, detail="Auth failed")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Health endpoint (required by load-balancers / container orchestrators)
-# ─────────────────────────────────────────────────────────────────────────────
 @app.get("/health")
 def health_check():
     return {"status": "ok", "timestamp": datetime.utcnow().isoformat()}
@@ -671,6 +666,264 @@ def parse_mood_profile(mood_text: str, playlist_intent: Optional[str]) -> dict:
         "raw_intent":    playlist_intent or "",
     }
 
+
+# ─── Query banks omitted for brevity — copy verbatim from original ───────────
+# GENRE_QUERY_BANKS, MOOD_QUERY_BANKS, INDIAN_LANG_QUERY_BANKS,
+# LANG_GENRE_CROSS_QUERIES — unchanged from original main.py
+# ─────────────────────────────────────────────────────────────────────────────
+
+from main_query_banks import (  # keep original query bank dict in a separate file,
+    GENRE_QUERY_BANKS,           # or paste them inline here — they are unchanged.
+    MOOD_QUERY_BANKS,
+    INDIAN_LANG_QUERY_BANKS,
+    LANG_GENRE_CROSS_QUERIES,
+)
+
+
+def get_lang_genre_queries(lang_key: str, genre_key: str) -> list:
+    key = (lang_key.lower(), genre_key.lower())
+    return LANG_GENRE_CROSS_QUERIES.get(key, [])
+
+
+def build_search_queries(
+    mood_profile:       dict,
+    lang_cfg:           dict,
+    indian_lang:        Optional[str],
+    selected_genres:    list,
+    selected_languages: list,
+) -> list:
+    queries = []
+    emotion = mood_profile["emotion"]
+    energy  = mood_profile["energy"]
+    valence = mood_profile["valence"]
+    intent  = mood_profile["intent"]
+
+    genre_keys = [
+        g.lower().replace(" / ", " ").replace("/", " ").replace("-", " ").strip()
+        for g in (selected_genres or [])
+    ]
+    genre_label_map = {
+        "r&b soul": "r&b", "r&b / soul": "r&b", "hip hop rap": "hip-hop",
+        "hip hop / rap": "hip-hop", "electronic edm": "electronic",
+        "electronic / edm": "electronic", "lofi chill": "lofi",
+        "lofi / chill": "lofi", "bhangra punjabi": "bhangra",
+        "bhangra / punjabi": "bhangra", "indian folk": "indian folk",
+    }
+    genre_keys = [genre_label_map.get(k, k) for k in genre_keys]
+
+    lang_keys = [
+        LANGUAGE_ALIASES.get(l.lower(), "english")
+        for l in (selected_languages or ["English"])
+    ]
+
+    if genre_keys and lang_keys and lang_keys != ["english"]:
+        for lk in lang_keys:
+            for gk in genre_keys:
+                cross = get_lang_genre_queries(lk, gk)
+                queries.extend(cross[:3])
+
+    if indian_lang and indian_lang in INDIAN_LANG_QUERY_BANKS:
+        lang_bank = INDIAN_LANG_QUERY_BANKS[indian_lang]
+        film_qs   = lang_bank.get("film", [])
+        indie_qs  = lang_bank.get("indie", [])
+
+        if valence == "low":
+            film_qs = (
+                [q for q in film_qs if any(w in q.lower() for w in ["sad", "melody", "emotional", "classic", "slow"])]
+                or film_qs[:4]
+            )
+        elif energy == "high":
+            film_qs = (
+                [q for q in film_qs if any(w in q.lower() for w in ["hits", "mass", "energetic", "fast"])]
+                or film_qs[:4]
+            )
+
+        queries.extend(film_qs[:5])
+        queries.extend(indie_qs[:2])
+
+    if genre_keys:
+        for gk in genre_keys:
+            bank = GENRE_QUERY_BANKS.get(gk, [])
+            if bank:
+                queries.extend(bank[:6])
+
+    mood_bank = MOOD_QUERY_BANKS.get(emotion, MOOD_QUERY_BANKS.get("chill", []))
+    queries.extend(mood_bank[:6])
+
+    if intent == "workout":
+        queries.insert(0, "high energy underground metal rap")
+        queries.insert(0, "workout hardcore punk metal")
+    elif intent == "study":
+        queries.insert(0, "focus ambient instrumental study")
+        queries.insert(0, "lofi study music underground")
+    elif intent == "sleep":
+        queries.insert(0, "sleep ambient drone")
+        queries.insert(0, "sleep music calm neoclassical")
+    elif intent == "party":
+        queries.insert(0, "party indie dance underground")
+    elif intent == "drive":
+        queries.insert(0, "night drive indie synth")
+
+    seen  = set()
+    final = []
+    for q in queries:
+        q = q.strip()
+        if q and q not in seen:
+            seen.add(q)
+            final.append(q)
+
+    return final[:12]
+
+
+class DeduplicationState:
+    def __init__(self):
+        self.seen_uris:    set = set()
+        self.seen_artists: set = set()
+
+    def is_allowed(self, uri: str, artist: str) -> bool:
+        artist_key = artist.lower().strip()
+        if uri in self.seen_uris:
+            return False
+        if artist_key in self.seen_artists:
+            return False
+        return True
+
+    def register(self, uri: str, artist: str):
+        self.seen_uris.add(uri)
+        self.seen_artists.add(artist.lower().strip())
+
+
+def get_spotify_user_profile(token: str):
+    res = requests.get(
+        "https://api.spotify.com/v1/me",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    if res.status_code != 200:
+        raise HTTPException(status_code=401, detail="Invalid Spotify token")
+    return res.json()
+
+
+def normalise_track(t: dict) -> dict:
+    album_images = t.get("album", {}).get("images", []) if "album" in t else []
+    return {
+        "title":      t["name"],
+        "artist":     t["artists"][0]["name"] if t.get("artists") else "Unknown",
+        "albumArt":   album_images[0]["url"] if album_images else None,
+        "spotifyUrl": t.get("external_urls", {}).get("spotify", ""),
+        "previewUrl": t.get("preview_url"),
+        "uri":        t.get("uri", ""),
+    }
+
+
+def search_tracks_by_query(token: str, query: str, market: str, limit: int = 30) -> list:
+    res = requests.get(
+        "https://api.spotify.com/v1/search",
+        headers={"Authorization": f"Bearer {token}"},
+        params={"q": query, "type": "track", "limit": min(limit, 50), "market": market},
+        timeout=6,
+    )
+    if res.status_code == 200:
+        return res.json().get("tracks", {}).get("items", [])
+    return []
+
+
+def search_movie_album(token: str, movie_name: str, indian_lang: str) -> list:
+    headers = {"Authorization": f"Bearer {token}"}
+    tracks  = []
+    seen    = set()
+
+    for q in [f"{movie_name} soundtrack", f"{movie_name} songs", f"{movie_name} film", movie_name]:
+        res = requests.get(
+            "https://api.spotify.com/v1/search",
+            headers=headers,
+            params={"q": q, "type": "album", "limit": 5, "market": "IN"},
+            timeout=5,
+        )
+        if res.status_code != 200:
+            continue
+
+        albums = res.json().get("albums", {}).get("items", [])
+        for album in albums:
+            album_detail = requests.get(
+                f"https://api.spotify.com/v1/albums/{album['id']}",
+                headers=headers,
+                params={"market": "IN"},
+                timeout=5,
+            ).json()
+            album_image = album_detail.get("images", [{}])[0].get("url")
+
+            res2 = requests.get(
+                f"https://api.spotify.com/v1/albums/{album['id']}/tracks",
+                headers=headers,
+                params={"limit": 50, "market": "IN"},
+                timeout=5,
+            )
+            if res2.status_code != 200:
+                continue
+
+            for t in res2.json().get("items", []):
+                if t.get("uri") and t["uri"] not in seen:
+                    seen.add(t["uri"])
+                    tracks.append({
+                        "title":      t["name"],
+                        "artist":     t["artists"][0]["name"],
+                        "albumArt":   album_image,
+                        "spotifyUrl": t.get("external_urls", {}).get("spotify", ""),
+                        "previewUrl": t.get("preview_url"),
+                        "uri":        t["uri"],
+                    })
+
+        if tracks:
+            return tracks
+
+    track_fallback = []
+    seen_fb = set()
+    for q in [f"{movie_name} songs", f"{movie_name} film songs", f"{movie_name} soundtrack"]:
+        res = requests.get(
+            "https://api.spotify.com/v1/search",
+            headers=headers,
+            params={"q": q, "type": "track", "limit": 50, "market": "IN"},
+            timeout=5,
+        )
+        if res.status_code == 200:
+            for t in res.json().get("tracks", {}).get("items", []):
+                uri = t.get("uri")
+                if uri and uri not in seen_fb:
+                    seen_fb.add(uri)
+                    album_images = t.get("album", {}).get("images", [])
+                    track_fallback.append({
+                        "title":      t["name"],
+                        "artist":     t["artists"][0]["name"],
+                        "albumArt":   album_images[0]["url"] if album_images else None,
+                        "spotifyUrl": t.get("external_urls", {}).get("spotify", ""),
+                        "previewUrl": t.get("preview_url"),
+                        "uri":        t["uri"],
+                    })
+        if len(track_fallback) >= 20:
+            break
+
+    return track_fallback
+
+
+def create_playlist_in_profile(token, user_id, name, description, public=True):
+    res = requests.post(
+        f"https://api.spotify.com/v1/users/{user_id}/playlists",
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        json={"name": name, "description": description, "public": public},
+    )
+    res.raise_for_status()
+    return res.json()
+
+
+def add_tracks_to_playlist(token, playlist_id, track_uris):
+    for i in range(0, len(track_uris), 100):
+        batch = track_uris[i:i + 100]
+        res = requests.post(
+            f"https://api.spotify.com/v1/playlists/{playlist_id}/tracks",
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            json={"uris": batch},
+        )
+        res.raise_for_status()
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Query banks (unchanged)
@@ -1795,257 +2048,6 @@ LANG_GENRE_CROSS_QUERIES = {
     ("arabic", "folk"):    ["Arabic folk music traditional", "Arabic classical music", "Arabic world music"],
     ("turkish", "folk"):   ["Turkish folk music traditional", "Turkish folk underground", "Anatolian folk music"],
 }
-
-
-def get_lang_genre_queries(lang_key: str, genre_key: str) -> list:
-    key = (lang_key.lower(), genre_key.lower())
-    return LANG_GENRE_CROSS_QUERIES.get(key, [])
-
-
-def build_search_queries(
-    mood_profile:       dict,
-    lang_cfg:           dict,
-    indian_lang:        Optional[str],
-    selected_genres:    list,
-    selected_languages: list,
-) -> list:
-    queries = []
-    emotion = mood_profile["emotion"]
-    energy  = mood_profile["energy"]
-    valence = mood_profile["valence"]
-    intent  = mood_profile["intent"]
-
-    genre_keys = [
-        g.lower().replace(" / ", " ").replace("/", " ").replace("-", " ").strip()
-        for g in (selected_genres or [])
-    ]
-    genre_label_map = {
-        "r&b soul": "r&b", "r&b / soul": "r&b", "hip hop rap": "hip-hop",
-        "hip hop / rap": "hip-hop", "electronic edm": "electronic",
-        "electronic / edm": "electronic", "lofi chill": "lofi",
-        "lofi / chill": "lofi", "bhangra punjabi": "bhangra",
-        "bhangra / punjabi": "bhangra", "indian folk": "indian folk",
-    }
-    genre_keys = [genre_label_map.get(k, k) for k in genre_keys]
-
-    lang_keys = [
-        LANGUAGE_ALIASES.get(l.lower(), "english")
-        for l in (selected_languages or ["English"])
-    ]
-
-    if genre_keys and lang_keys and lang_keys != ["english"]:
-        for lk in lang_keys:
-            for gk in genre_keys:
-                cross = get_lang_genre_queries(lk, gk)
-                queries.extend(cross[:3])
-
-    if indian_lang and indian_lang in INDIAN_LANG_QUERY_BANKS:
-        lang_bank = INDIAN_LANG_QUERY_BANKS[indian_lang]
-        film_qs   = lang_bank.get("film", [])
-        indie_qs  = lang_bank.get("indie", [])
-
-        if valence == "low":
-            film_qs = (
-                [q for q in film_qs if any(w in q.lower() for w in ["sad", "melody", "emotional", "classic", "slow"])]
-                or film_qs[:4]
-            )
-        elif energy == "high":
-            film_qs = (
-                [q for q in film_qs if any(w in q.lower() for w in ["hits", "mass", "energetic", "fast"])]
-                or film_qs[:4]
-            )
-
-        queries.extend(film_qs[:5])
-        queries.extend(indie_qs[:2])
-
-    if genre_keys:
-        for gk in genre_keys:
-            bank = GENRE_QUERY_BANKS.get(gk, [])
-            if bank:
-                queries.extend(bank[:6])
-
-    mood_bank = MOOD_QUERY_BANKS.get(emotion, MOOD_QUERY_BANKS.get("chill", []))
-    queries.extend(mood_bank[:6])
-
-    if intent == "workout":
-        queries.insert(0, "high energy underground metal rap")
-        queries.insert(0, "workout hardcore punk metal")
-    elif intent == "study":
-        queries.insert(0, "focus ambient instrumental study")
-        queries.insert(0, "lofi study music underground")
-    elif intent == "sleep":
-        queries.insert(0, "sleep ambient drone")
-        queries.insert(0, "sleep music calm neoclassical")
-    elif intent == "party":
-        queries.insert(0, "party indie dance underground")
-    elif intent == "drive":
-        queries.insert(0, "night drive indie synth")
-
-    seen  = set()
-    final = []
-    for q in queries:
-        q = q.strip()
-        if q and q not in seen:
-            seen.add(q)
-            final.append(q)
-
-    return final[:12]
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Deduplication + Spotify helpers (unchanged)
-# ─────────────────────────────────────────────────────────────────────────────
-class DeduplicationState:
-    def __init__(self):
-        self.seen_uris:    set = set()
-        self.seen_artists: set = set()
-
-    def is_allowed(self, uri: str, artist: str) -> bool:
-        artist_key = artist.lower().strip()
-        if uri in self.seen_uris:
-            return False
-        if artist_key in self.seen_artists:
-            return False
-        return True
-
-    def register(self, uri: str, artist: str):
-        self.seen_uris.add(uri)
-        self.seen_artists.add(artist.lower().strip())
-
-
-def get_spotify_user_profile(token: str):
-    res = requests.get(
-        "https://api.spotify.com/v1/me",
-        headers={"Authorization": f"Bearer {token}"},
-    )
-    if res.status_code != 200:
-        raise HTTPException(status_code=401, detail="Invalid Spotify token")
-    return res.json()
-
-
-def normalise_track(t: dict) -> dict:
-    album_images = t.get("album", {}).get("images", []) if "album" in t else []
-    return {
-        "title":      t["name"],
-        "artist":     t["artists"][0]["name"] if t.get("artists") else "Unknown",
-        "albumArt":   album_images[0]["url"] if album_images else None,
-        "spotifyUrl": t.get("external_urls", {}).get("spotify", ""),
-        "previewUrl": t.get("preview_url"),
-        "uri":        t.get("uri", ""),
-    }
-
-
-def search_tracks_by_query(token: str, query: str, market: str, limit: int = 30) -> list:
-    res = requests.get(
-        "https://api.spotify.com/v1/search",
-        headers={"Authorization": f"Bearer {token}"},
-        params={"q": query, "type": "track", "limit": min(limit, 50), "market": market},
-        timeout=6,
-    )
-    if res.status_code == 200:
-        return res.json().get("tracks", {}).get("items", [])
-    return []
-
-
-def search_movie_album(token: str, movie_name: str, indian_lang: str) -> list:
-    headers = {"Authorization": f"Bearer {token}"}
-    tracks  = []
-    seen    = set()
-
-    for q in [f"{movie_name} soundtrack", f"{movie_name} songs", f"{movie_name} film", movie_name]:
-        res = requests.get(
-            "https://api.spotify.com/v1/search",
-            headers=headers,
-            params={"q": q, "type": "album", "limit": 5, "market": "IN"},
-            timeout=5,
-        )
-        if res.status_code != 200:
-            continue
-
-        albums = res.json().get("albums", {}).get("items", [])
-        for album in albums:
-            album_detail = requests.get(
-                f"https://api.spotify.com/v1/albums/{album['id']}",
-                headers=headers,
-                params={"market": "IN"},
-                timeout=5,
-            ).json()
-            album_image = album_detail.get("images", [{}])[0].get("url")
-
-            res2 = requests.get(
-                f"https://api.spotify.com/v1/albums/{album['id']}/tracks",
-                headers=headers,
-                params={"limit": 50, "market": "IN"},
-                timeout=5,
-            )
-            if res2.status_code != 200:
-                continue
-
-            for t in res2.json().get("items", []):
-                if t.get("uri") and t["uri"] not in seen:
-                    seen.add(t["uri"])
-                    tracks.append({
-                        "title":      t["name"],
-                        "artist":     t["artists"][0]["name"],
-                        "albumArt":   album_image,
-                        "spotifyUrl": t.get("external_urls", {}).get("spotify", ""),
-                        "previewUrl": t.get("preview_url"),
-                        "uri":        t["uri"],
-                    })
-
-        if tracks:
-            return tracks
-
-    track_fallback = []
-    seen_fb = set()
-    for q in [f"{movie_name} songs", f"{movie_name} film songs", f"{movie_name} soundtrack"]:
-        res = requests.get(
-            "https://api.spotify.com/v1/search",
-            headers=headers,
-            params={"q": q, "type": "track", "limit": 50, "market": "IN"},
-            timeout=5,
-        )
-        if res.status_code == 200:
-            for t in res.json().get("tracks", {}).get("items", []):
-                uri = t.get("uri")
-                if uri and uri not in seen_fb:
-                    seen_fb.add(uri)
-                    album_images = t.get("album", {}).get("images", [])
-                    track_fallback.append({
-                        "title":      t["name"],
-                        "artist":     t["artists"][0]["name"],
-                        "albumArt":   album_images[0]["url"] if album_images else None,
-                        "spotifyUrl": t.get("external_urls", {}).get("spotify", ""),
-                        "previewUrl": t.get("preview_url"),
-                        "uri":        t["uri"],
-                    })
-        if len(track_fallback) >= 20:
-            break
-
-    return track_fallback
-
-
-def create_playlist_in_profile(token, user_id, name, description, public=True):
-    res = requests.post(
-        f"https://api.spotify.com/v1/users/{user_id}/playlists",
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-        json={"name": name, "description": description, "public": public},
-    )
-    res.raise_for_status()
-    return res.json()
-
-
-def add_tracks_to_playlist(token, playlist_id, track_uris):
-    for i in range(0, len(track_uris), 100):
-        batch = track_uris[i:i + 100]
-        res = requests.post(
-            f"https://api.spotify.com/v1/playlists/{playlist_id}/tracks",
-            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-            json={"uris": batch},
-        )
-        res.raise_for_status()
-
-
 INDIAN_LANG_KEYWORDS = {
     "hindi":     ["bollywood", "hindi film", "hindi movie", "hindi songs", "hindi music", "hindi", "ghazal", "qawwali", "sufi hindi", "bhajan"],
     "telugu":    ["tollywood", "telugu film", "telugu movie", "telugu songs", "telugu music", "telugu"],
@@ -2131,21 +2133,19 @@ def get_recommendations_for_bucket(
             logger.warning(f"[QUERY_ERR] {q}: {exc}")
             return []
 
-    # cap at 6 workers, timeout=15s so slow Spotify responses don't pile up
-    with ThreadPoolExecutor(max_workers=6) as executor:
-        futures = {executor.submit(fetch_query, q): q for q in queries}
-        try:
-            for future in as_completed(futures, timeout=15):
-                for t in future.result():
-                    uri    = t.get("uri", "")
-                    artist = t.get("artist", "")
-                    if uri and dedup.is_allowed(uri, artist):
-                        dedup.register(uri, artist)
-                        all_tracks.append(t)
-                if len(all_tracks) >= track_count * 2:
-                    break
-        except FutureTimeoutError:
-            logger.warning("[TIMEOUT] get_recommendations_for_bucket ThreadPoolExecutor timed out after 15s")
+    futures = {_GLOBAL_EXECUTOR.submit(fetch_query, q): q for q in queries}
+    try:
+        for future in as_completed(futures, timeout=15):
+            for t in future.result():
+                uri    = t.get("uri", "")
+                artist = t.get("artist", "")
+                if uri and dedup.is_allowed(uri, artist):
+                    dedup.register(uri, artist)
+                    all_tracks.append(t)
+            if len(all_tracks) >= track_count * 2:
+                break
+    except FutureTimeoutError:
+        logger.warning("[TIMEOUT] get_recommendations_for_bucket timed out after 15s")
 
     random.shuffle(all_tracks)
     return all_tracks[:track_count]
@@ -2176,9 +2176,9 @@ def get_recommendations(
             selected_genres, lang_list, track_count, dedup, movie_name,
         )
 
-    n          = len(lang_list)
-    base       = track_count // n
-    remainder  = track_count % n
+    n         = len(lang_list)
+    base      = track_count // n
+    remainder = track_count % n
     all_tracks = []
 
     for i, lang_name in enumerate(lang_list):
@@ -2205,38 +2205,38 @@ def get_recommendations(
 
 @app.post("/api/create-playlist")
 def create_playlist(data: PlaylistRequest, request: Request):
-    # Verify session token (account isolation — each session is tied to a verified user)
     require_session_token(request)
 
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing or invalid Spotify token")
 
-    access_token = auth_header.split(" ")[1]
-    mood_text    = data.moodText.strip()
+    # Structural validation of the Spotify token before use
+    raw_token    = auth_header.split(" ", 1)[1]
+    access_token = validate_spotify_token(raw_token)
 
-    # Cap moodText to prevent HuggingFace abuse / oversized payloads
-    if len(mood_text) > 500:
-        raise HTTPException(status_code=400, detail="moodText must be 500 characters or fewer.")
+    # Sanitise all user-supplied text before touching external APIs
+    mood_text = sanitise_user_text(data.moodText.strip(), "moodText", max_len=500)
+    intent    = sanitise_user_text(data.playlistIntent.strip(), "playlistIntent", max_len=200) if data.playlistIntent else None
 
-    intent = data.playlistIntent.strip() if data.playlistIntent else None
+    # Sanitise list fields that feed into Spotify search strings
+    selected_langs = [sanitise_language(l) for l in (data.selectedLanguages or ["English"])]
+    selected_genres = [sanitise_genre(g) for g in (data.selectedGenres or [])]
+
+    selected_movies = data.selectedMovies or ([data.movieName] if data.movieName else [])
+    split_movies    = []
+    for m in selected_movies:
+        parts = re.split(r',|\band\b', m, flags=re.IGNORECASE)
+        split_movies.extend([sanitise_movie(p.strip()) for p in parts if p.strip()])
+    selected_movies = split_movies
 
     mood_profile = parse_mood_profile(mood_text, intent)
     logger.info(
         f"[MOOD] {mood_profile['emotion']} | energy={mood_profile['energy']} | intent={mood_profile['intent']}"
     )
 
-    range_key       = data.trackCountRange if data.trackCountRange in PLAYLIST_RANGES else "15-30"
-    track_count     = resolve_track_count(range_key)
-    selected_langs  = data.selectedLanguages or ["English"]
-    selected_genres = data.selectedGenres    or []
-
-    selected_movies = data.selectedMovies or ([data.movieName] if data.movieName else [])
-    split_movies    = []
-    for m in selected_movies:
-        parts = re.split(r',|\band\b', m, flags=re.IGNORECASE)
-        split_movies.extend([p.strip() for p in parts if p.strip()])
-    selected_movies = split_movies
+    range_key   = data.trackCountRange if data.trackCountRange in PLAYLIST_RANGES else "15-30"
+    track_count = resolve_track_count(range_key)
 
     logger.info(
         f"[REQ] count={track_count} langs={selected_langs} genres={selected_genres} movies={selected_movies}"
@@ -2320,15 +2320,14 @@ def create_playlist(data: PlaylistRequest, request: Request):
 
 @app.post("/api/add-tracks")
 def add_tracks_endpoint(data: AddTracksRequest, request: Request):
-    # Verify session token
     require_session_token(request)
 
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing or invalid Spotify token")
-    access_token = auth_header.split(" ")[1]
+    raw_token    = auth_header.split(" ", 1)[1]
+    access_token = validate_spotify_token(raw_token)
 
-    # Verify the caller actually owns this playlist (IDOR guard)
     user_profile = get_spotify_user_profile(access_token)
     verify_playlist_ownership(access_token, data.playlist_id, user_profile["id"])
 
@@ -2341,25 +2340,30 @@ def add_tracks_endpoint(data: AddTracksRequest, request: Request):
 
 @app.post("/api/similar-tracks")
 def similar_tracks(data: SimilarTracksRequest, request: Request):
-    # Verify session token
     require_session_token(request)
 
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing or invalid Spotify token")
-
-    access_token = auth_header.split(" ")[1]
+    raw_token    = auth_header.split(" ", 1)[1]
+    access_token = validate_spotify_token(raw_token)
     headers      = {"Authorization": f"Bearer {access_token}"}
 
-    # Verify the caller owns the playlist they're writing into (IDOR guard)
     user_profile = get_spotify_user_profile(access_token)
     verify_playlist_ownership(access_token, data.playlist_id, user_profile["id"])
 
-    lang_key     = LANGUAGE_ALIASES.get((data.language or "english").lower(), "english")
+    # Sanitise fields used in Spotify search string construction
+    safe_language = sanitise_search_token(data.language or "english", "language")
+    safe_genre    = sanitise_search_token(data.genre or "", "genre")
+    safe_artist   = sanitise_search_token(data.track_artist, "track_artist")
+    safe_mood     = sanitise_user_text(data.mood_text or "", "mood_text", max_len=200) if data.mood_text else ""
+    safe_intent   = sanitise_user_text(data.playlist_intent or "", "playlist_intent", max_len=200) if data.playlist_intent else None
+
+    lang_key     = LANGUAGE_ALIASES.get(safe_language.lower(), "english")
     lang_cfg     = LANGUAGE_CONFIG.get(lang_key, LANGUAGE_CONFIG["english"])
     market       = lang_cfg.get("market", "US")
 
-    mood_profile = parse_mood_profile(data.mood_text or "", data.playlist_intent)
+    mood_profile = parse_mood_profile(safe_mood, safe_intent)
     dedup        = DeduplicationState()
 
     if data.ignored_uris:
@@ -2371,7 +2375,7 @@ def similar_tracks(data: SimilarTracksRequest, request: Request):
     res = requests.get(
         "https://api.spotify.com/v1/search",
         headers=headers,
-        params={"q": f"artist:{data.track_artist}", "type": "track", "limit": 20, "market": market},
+        params={"q": f"artist:{safe_artist}", "type": "track", "limit": 20, "market": market},
         timeout=8,
     )
     if res.status_code == 200:
@@ -2389,13 +2393,13 @@ def similar_tracks(data: SimilarTracksRequest, request: Request):
             if count >= 4:
                 break
 
-    indian_lang = detect_indian_language(data.language or "", None, [data.language or "English"])
+    indian_lang = detect_indian_language(safe_language, None, [safe_language])
     queries     = build_search_queries(
         mood_profile, lang_cfg, indian_lang,
-        [data.genre] if data.genre else [],
-        [data.language or "English"],
+        [safe_genre] if safe_genre else [],
+        [safe_language],
     )
-    queries.insert(0, f"similar to {data.track_artist} {data.genre or ''}")
+    queries.insert(0, f"similar to {safe_artist} {safe_genre}")
 
     def fetch_fill(q: str) -> list:
         try:
@@ -2413,20 +2417,19 @@ def similar_tracks(data: SimilarTracksRequest, request: Request):
             logger.warning(f"[SIMILAR_ERR] {exc}")
             return []
 
-    with ThreadPoolExecutor(max_workers=4) as executor:
-        futures = [executor.submit(fetch_fill, q) for q in queries[:5]]
-        try:
-            for future in as_completed(futures, timeout=15):
-                for t in future.result():
-                    uri    = t.get("uri", "")
-                    artist = t.get("artist", "")
-                    if uri and dedup.is_allowed(uri, artist) and len(result_tracks) < 20:
-                        dedup.register(uri, artist)
-                        result_tracks.append(t)
-                if len(result_tracks) >= 20:
-                    break
-        except FutureTimeoutError:
-            logger.warning("[TIMEOUT] similar_tracks ThreadPoolExecutor timed out after 15s")
+    fill_futures = [_GLOBAL_EXECUTOR.submit(fetch_fill, q) for q in queries[:5]]
+    try:
+        for future in as_completed(fill_futures, timeout=15):
+            for t in future.result():
+                uri    = t.get("uri", "")
+                artist = t.get("artist", "")
+                if uri and dedup.is_allowed(uri, artist) and len(result_tracks) < 20:
+                    dedup.register(uri, artist)
+                    result_tracks.append(t)
+            if len(result_tracks) >= 20:
+                break
+    except FutureTimeoutError:
+        logger.warning("[TIMEOUT] similar_tracks timed out after 15s")
 
     if not result_tracks:
         raise HTTPException(status_code=404, detail="No similar tracks found")
@@ -2447,9 +2450,6 @@ def similar_tracks(data: SimilarTracksRequest, request: Request):
     }
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Mood data / Unsplash
-# ─────────────────────────────────────────────────────────────────────────────
 def get_emotion_from_text(text: str):
     API_URL = "https://api-inference.huggingface.co/models/michellejieli/emotion_text_classifier"
     headers = {"Authorization": f"Bearer {HF_API_TOKEN}"}
@@ -2479,11 +2479,10 @@ def get_images_from_unsplash(query: str, count: int = 4):
 
 @app.post("/api/get-mood-data")
 def get_mood_data(request_body: MoodRequest):
-    # Cap input length to prevent HuggingFace abuse
-    if len(request_body.text) > 500:
-        raise HTTPException(status_code=400, detail="text must be 500 characters or fewer.")
+    # Sanitise before sending to HuggingFace
+    safe_text = sanitise_user_text(request_body.text, "text", max_len=500)
 
-    emotion_result = get_emotion_from_text(request_body.text)
+    emotion_result = get_emotion_from_text(safe_text)
     if "error" in emotion_result:
         return emotion_result
     emotion = emotion_result.get("emotion", "thoughtful")
