@@ -1,4 +1,5 @@
 # Python 
+.commandcode/
 .venv/ 
 backend/.venv/ 
 **/.venv/ 

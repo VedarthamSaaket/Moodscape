@@ -52,9 +52,8 @@ function SignInPage() {
       }
 
       
-      if (data.token) {
-        const storage = rememberMe ? localStorage : sessionStorage;
-        storage.setItem('authToken', data.token);
+      if (data.session_token) {
+        localStorage.setItem('authToken', data.session_token);
       }
 
       setMessage(data.message || 'Signed in successfully!');

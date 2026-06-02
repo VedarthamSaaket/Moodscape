@@ -246,7 +246,7 @@ export default function HomePage() {
 
         {/* Top nav bar */}
         <div style={{ position: 'relative', zIndex: 4, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '22px 52px' }}>
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.60rem', letterSpacing: '0.46em', textTransform: 'uppercase', color: 'rgba(194,217,232,0.58)' }}>VÆDARTH</span>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.60rem', letterSpacing: '0.46em', textTransform: 'uppercase', color: 'rgba(194,217,232,0.58)' }}>M<span style={{ marginLeft: '2px', marginRight: '2px' }}>&amp;</span>M</span>
           <div style={{ display: 'flex' }}>
             {['Mood', 'Music', 'AI'].map((w, i) => (
               <span key={i} style={{ fontFamily: 'var(--font-mono)', fontSize: '0.48rem', letterSpacing: '0.24em', textTransform: 'uppercase', padding: '4px 14px', color: 'rgba(154,184,204,0.26)', borderLeft: '1px solid rgba(154,184,204,0.09)', borderRight: i === 2 ? '1px solid rgba(154,184,204,0.09)' : 'none' }}>{w}</span>
