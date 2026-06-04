@@ -1,5 +1,6 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { API_BASE } from '../config';
+import useQuizStore from '../store/quizStore';
 import Dither from '../assets/Dither';
 import "./GeneratorPage.css"
 
@@ -208,25 +209,27 @@ function GenrePillSelector({ label, options, selected, onChange }) {
   );
 }
 
-function SuggestButton({ track, token, playlistId, onAdded, moodText, playlistIntent, selectedLanguages, selectedGenres }) {
+function SuggestButton({ track, token, playlistId, onAdded, moodText, selectedLanguages, selectedGenres }) {
   const [state, setState] = useState('idle'); 
 
   const handleClick = async () => {
     if (state !== 'idle' || !token) return;
     setState('loading');
+    const appToken = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
     try {
       const res = await fetch(`${API_BASE}/api/similar-tracks`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
+          'X-Session-Token': appToken || '',
         },
         body: JSON.stringify({
           track_title: track.title,
           track_artist: track.artist,
           playlist_id: playlistId || '',
           mood_text: moodText || '',
-          playlist_intent: playlistIntent || '',
+          playlist_intent: moodText || '',
           language: selectedLanguages?.[0] || null,
           genre: selectedGenres?.[0] || null,
           ignored_uris: Array.from(window.ignoredTrackUris || new Set()) 
@@ -269,10 +272,49 @@ export default function GeneratorPage() {
   const [languages, setLanguages] = useState(['English']);
   const [genres, setGenres] = useState([]);
   const [trackCountRange, setTrackCountRange] = useState('15-30');
-  const [playlistIntent, setPlaylistIntent] = useState('');
   const [filmIndustry, setFilmIndustry] = useState('');
   const [movieName, setMovieName] = useState('');
   const [coverSeed, setCoverSeed] = useState(() => Math.floor(Math.random() * COVER_PALETTES.length));
+
+  // ── Quiz handoff ─────────────────────────────────────────────────────────
+  // If the user just clicked "Use my style in the next playlist" on the Quiz
+  // result page, the quiz store holds a pendingStyleSeed. Apply it ONCE on
+  // mount, then clear it so navigating away + back doesn't re-apply.
+  // We also persist the archetype context (id, name, vibe prompt) so the
+  // backend can fold it into the playlist generation pipeline.
+  const pendingStyleSeed     = useQuizStore((s) => s.pendingStyleSeed);
+  const clearPendingStyleSeed = useQuizStore((s) => s.clearPendingStyleSeed);
+  const [styleBanner, setStyleBanner] = useState(null); // {name} | null
+  const [styleContext, setStyleContext] = useState(null); // {id, name, vibePrompt} | null
+
+  useEffect(() => {
+    if (!pendingStyleSeed) return;
+    const seed = pendingStyleSeed;
+
+    setMoodText(seed.vibePrompt || '');
+
+    if (Array.isArray(seed.genres) && seed.genres.length) {
+      const validValues = new Set(GENRES.map((g) => g.value));
+      const matched = seed.genres.filter((g) => validValues.has(g));
+      if (matched.length) setGenres(matched);
+    }
+
+    setStyleBanner({ name: seed.name || 'your style' });
+    setStyleContext({
+      id:         seed.archetype || null,
+      name:       seed.name || null,
+      vibePrompt: seed.vibePrompt || null,
+    });
+    clearPendingStyleSeed();
+  }, [pendingStyleSeed, clearPendingStyleSeed]);
+
+  const handleClearStyleSeed = () => {
+    setMoodText('');
+    setLanguages(['English']);
+    setGenres([]);
+    setStyleBanner(null);
+    setStyleContext(null);
+  };
 
   const [playlist, setPlaylist] = useState(null);
   const [playlistUrl, setPlaylistUrl] = useState(null);
@@ -283,6 +325,7 @@ export default function GeneratorPage() {
   const [error, setError] = useState(null);
 
   const token = localStorage.getItem('spotify_token');
+  const sessionToken = localStorage.getItem('authToken');
   const coverDataUrl = svgToDataUrl(generateCoverSVG(coverSeed));
 
   const isIndian = [
@@ -326,18 +369,21 @@ export default function GeneratorPage() {
 
       const body = {
         moodText: moodText.trim(),
-        playlistName: playlistName.trim() || 'Vædarth AI Playlist',
+        playlistName: playlistName.trim() || `M&M playlist ${(parseInt(localStorage.getItem('playlistCount') || '0') + 1)}`,
         trackCountRange,
-        playlistIntent: playlistIntent.trim() || null,
+        playlistIntent: moodText.trim() || null,
         filmIndustry: filmIndustry || null,
         movieName: movieName.trim() || null,
         selectedLanguages: languages,
         selectedGenres: genres,
+        styleArchetypeId:   styleContext?.id || null,
+        styleArchetypeName: styleContext?.name || null,
+        styleVibePrompt:    styleContext?.vibePrompt || null,
       };
 
       const response = await fetch(`${API_BASE}/api/create-playlist`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, 'X-Session-Token': sessionToken || '' },
         body: JSON.stringify(body),
       });
 
@@ -347,10 +393,12 @@ export default function GeneratorPage() {
       }
 
       const data = await response.json();
+      const playlistNum = parseInt(localStorage.getItem('playlistCount') || '0') + 1;
+      localStorage.setItem('playlistCount', String(playlistNum));
       setPlaylist(data.tracks);
       setPlaylistUrl(data.playlist_url);
       setPlaylistId(data.playlist_id || null);
-      setPlaylistNameResult(playlistName.trim() || 'Your Playlist');
+      setPlaylistNameResult(playlistName.trim() || `M&M playlist ${playlistNum}`);
 
       if (data.playlist_id) uploadCoverToSpotify(token, data.playlist_id, newSeed);
     } catch (err) {
@@ -471,6 +519,16 @@ export default function GeneratorPage() {
           <div className="gen-title-rule" />
         </div>
 
+        {/* Style-quiz handoff banner */}
+        {styleBanner && (
+          <div className="gen-style-banner">
+            Pre-filled from your <strong>{styleBanner.name}</strong> style,
+            <button type="button" className="gen-style-banner-clear" onClick={handleClearStyleSeed}>
+              clear to start fresh
+            </button>
+          </div>
+        )}
+
         {/* Spotify connect */}
         {!isConnected && (
           <div className="gen-connect-block">
@@ -494,32 +552,15 @@ export default function GeneratorPage() {
 
             {}
             <div className="gen-field">
-              <label className="gen-label">Describe your mood</label>
+              <label className="gen-label">Describe your mood &amp; intent</label>
               <textarea
                 className="gen-textarea"
                 rows={4}
-                placeholder="e.g. calm, nostalgic, like driving at 2am with the windows down…"
+                placeholder="e.g. calm, nostalgic, driving at 2am with the windows down… or: study session, late night drive, feeling restless…"
                 value={moodText}
                 onChange={e => setMoodText(e.target.value)}
                 required
               />
-            </div>
-
-            {}
-            <div className="gen-field">
-              <label className="gen-label">
-                Playlist intent <span className="gen-label-optional">(optional)</span>
-              </label>
-              <input
-                className="gen-input"
-                type="text"
-                placeholder="e.g. to feel better about myself, study session, late night drive…"
-                value={playlistIntent}
-                onChange={e => setPlaylistIntent(e.target.value)}
-              />
-              <p className="gen-field-hint">
-                Narrows the focus, combines your mood with a purpose.
-              </p>
             </div>
 
             {}
@@ -692,7 +733,6 @@ export default function GeneratorPage() {
                     playlistId={playlistId}
                     onAdded={handleSimilarAdded}
                     moodText={moodText}
-                    playlistIntent={playlistIntent}
                     selectedLanguages={languages}
                     selectedGenres={genres}
                   />

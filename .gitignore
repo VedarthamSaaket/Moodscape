@@ -15,3 +15,8 @@ frontend/dist/
 demo.py 
 frontend/*.txt 
 backend/test_*.py 
+.env
+.env.local
+$null
+frontend/.env
+**/.env

@@ -11,8 +11,9 @@
   },
   "dependencies": {
     "@react-three/drei": "^10.7.7",
-    "@react-three/fiber": "^9.5.0",
+    "@react-three/fiber": "^9.6.1",
     "@react-three/postprocessing": "^3.0.4",
+    "html-to-image": "^1.11.13",
     "postprocessing": "^6.38.3",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",

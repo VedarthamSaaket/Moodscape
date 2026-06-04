@@ -22,7 +22,7 @@ router = APIRouter()
 
 @router.post("/api/create-playlist")
 def create_playlist(data: PlaylistRequest, request: Request):
-    require_session_token(request)
+    require_session_token(request, lax=True)
 
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
@@ -33,6 +33,31 @@ def create_playlist(data: PlaylistRequest, request: Request):
 
     mood_text = sanitise_user_text(data.moodText.strip(), "moodText", max_len=500)
     intent    = sanitise_user_text(data.playlistIntent.strip(), "playlistIntent", max_len=200) if data.playlistIntent else None
+
+    # ─── Style-quiz archetype influence ──────────────────────────────────────
+    # If the user has taken the Quiz and chose "Use my style", the frontend
+    # forwards their archetype + vibe prompt. Fold it into the mood text so
+    # the same downstream pipeline (mood parsing, query generation, genre
+    # search) sees the aesthetic signal. Keeps a single source of truth.
+    style_vibe      = sanitise_user_text(
+        (data.styleVibePrompt or "").strip(), "styleVibePrompt", max_len=400
+    ) if data.styleVibePrompt else ""
+    style_arch_name = sanitise_user_text(
+        (data.styleArchetypeName or "").strip(), "styleArchetypeName", max_len=80
+    ) if data.styleArchetypeName else ""
+
+    if style_vibe:
+        # Prefix the archetype description so HF zero-shot + every query
+        # builder picks up the aesthetic, while the user's own words still
+        # lead the prompt.
+        prefix = (
+            f"In a {style_arch_name} aesthetic, {style_vibe} "
+            if style_arch_name else f"{style_vibe} "
+        )
+        mood_text = (prefix + mood_text).strip()
+        # Cap again in case the merged string runs long.
+        mood_text = mood_text[:600]
+        logger.info(f"[STYLE] archetype={style_arch_name or 'n/a'}, vibe folded into mood")
 
     selected_langs = [sanitise_language(l) for l in (data.selectedLanguages or ["English"])]
     selected_genres = [sanitise_genre(g) for g in (data.selectedGenres or [])]
@@ -134,7 +159,7 @@ def create_playlist(data: PlaylistRequest, request: Request):
 
 @router.post("/api/add-tracks")
 def add_tracks_endpoint(data: AddTracksRequest, request: Request):
-    require_session_token(request)
+    require_session_token(request, lax=True)
 
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
@@ -154,7 +179,7 @@ def add_tracks_endpoint(data: AddTracksRequest, request: Request):
 
 @router.post("/api/similar-tracks")
 def similar_tracks(data: SimilarTracksRequest, request: Request):
-    require_session_token(request)
+    require_session_token(request, lax=True)
 
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):

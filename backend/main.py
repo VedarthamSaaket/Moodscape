@@ -10,7 +10,7 @@ from config import (
     SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET,
     SPOTIFY_REDIRECT_URI, SPOTIFY_SCOPES,
 )
-from routers import auth, playlist, mood
+from routers import auth, playlist, mood, studio, quiz
 
 
 sp_oauth = SpotifyOAuth(
@@ -44,7 +44,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "X-Session-Token"],
 )
 app.add_middleware(SecurityMiddleware)
@@ -52,6 +52,8 @@ app.add_middleware(SecurityMiddleware)
 app.include_router(auth.router)
 app.include_router(playlist.router)
 app.include_router(mood.router)
+app.include_router(studio.router)
+app.include_router(quiz.router)
 
 
 if __name__ == "__main__":

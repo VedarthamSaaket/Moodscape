@@ -207,9 +207,11 @@ def verify_session_token(token: str) -> str:
         raise HTTPException(status_code=401, detail="Invalid or expired session token.")
 
 
-def require_session_token(request: Request) -> str:
+def require_session_token(request: Request, lax: bool = False) -> str:
     token = request.headers.get("X-Session-Token", "").strip()
     if not token:
+        if lax:
+            return ""
         raise HTTPException(status_code=401, detail="Missing X-Session-Token header.")
     return verify_session_token(token)
 

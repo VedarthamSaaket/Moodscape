@@ -21,6 +21,11 @@ class PlaylistRequest(BaseModel):
     selectedMovies:    Optional[list[str]] = None
     selectedLanguages: Optional[list[str]] = None
     selectedGenres:    Optional[list[str]] = None
+    # Style-quiz archetype context, sent from the frontend when the user has
+    # taken the Quiz. Used by the playlist generator to bias mood + queries.
+    styleArchetypeId:     Optional[str] = None
+    styleArchetypeName:   Optional[str] = None
+    styleVibePrompt:      Optional[str] = None
 
 class MoodRequest(BaseModel):
     text: str

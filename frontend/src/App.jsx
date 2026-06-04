@@ -9,6 +9,7 @@ import SignUpPage from './pages/SignUpPage';
 import VerifyEmailPage from './pages/VerifyEmailPage';
 import GeneratorPage from './pages/GeneratorPage';
 import StudioPage from './pages/StudioPage';
+import QuizPage from './pages/QuizPage';
 import CallbackPage from './pages/CallbackPage';
 import { AuthProvider } from './AuthContext';
 
@@ -28,8 +29,11 @@ function App() {
             <Route path="/generator" element={<GeneratorLayout />}>
               <Route index element={<GeneratorPage />} />
             </Route>
-            <Route path="/studio" element={<ProtectedRoute />}>
+            <Route path="/studio" element={<GeneratorLayout />}>
               <Route index element={<StudioPage />} />
+            </Route>
+            <Route path="/quiz" element={<GeneratorLayout />}>
+              <Route index element={<QuizPage />} />
             </Route>
           </Route>
         </Routes>

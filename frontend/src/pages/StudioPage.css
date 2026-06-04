@@ -1,15 +1,24 @@
 /* StudioPage.css — MoodScape Studio
    Cream-dominant palette with blue accents (steel, mist, violet) */
 
-/* ── Layout ── */
+/* ── Layout ──
+   Sits below the global Moodscape tab bar (.generator-header, ~72px tall).
+   Using a fixed top offset instead of `inset: 0` lets the navbar stay visible. */
 .studio-layout {
   position: fixed;
-  inset: 0;
+  top: 72px;
+  right: 0;
+  bottom: 0;
+  left: 0;
   display: grid;
   grid-template-columns: 1fr 320px;
   grid-template-rows: auto 1fr;
   overflow: hidden;
   background: #f5f0e8;
+}
+
+@media (max-width: 720px) {
+  .studio-layout { top: 64px; }
 }
 
 .studio-toolbar {
@@ -158,6 +167,25 @@
   overflow-y: auto;
   display: flex;
   flex-direction: column;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(42, 32, 24, 0.12) transparent;
+}
+
+.studio-sidebar::-webkit-scrollbar {
+  width: 4px;
+}
+
+.studio-sidebar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.studio-sidebar::-webkit-scrollbar-thumb {
+  background: rgba(42, 32, 24, 0.12);
+  border-radius: 2px;
+}
+
+.studio-sidebar::-webkit-scrollbar-thumb:hover {
+  background: rgba(42, 32, 24, 0.22);
 }
 
 .studio-section {
@@ -305,6 +333,53 @@
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 6px;
+}
+
+.studio-img-results {
+  max-height: 420px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(42, 32, 24, 0.12) transparent;
+}
+
+.studio-img-results::-webkit-scrollbar {
+  width: 4px;
+}
+
+.studio-img-results::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.studio-img-results::-webkit-scrollbar-thumb {
+  background: rgba(42, 32, 24, 0.12);
+  border-radius: 2px;
+}
+
+.studio-img-results::-webkit-scrollbar-thumb:hover {
+  background: rgba(42, 32, 24, 0.22);
+}
+
+.studio-img-load-more {
+  width: 100%;
+  padding: 0.5rem;
+  margin-top: 0.5rem;
+  background: none;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 0.4rem;
+  letter-spacing: 0.14em;
+  color: rgba(0, 0, 0, 0.4);
+  text-transform: uppercase;
+  transition: all 0.2s;
+}
+.studio-img-load-more:hover:not(:disabled) {
+  border-color: var(--rg);
+  color: var(--rg);
+}
+.studio-img-load-more:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 .studio-img-card {
@@ -648,6 +723,34 @@
   object-fit: cover;
   display: block;
   pointer-events: none;
+}
+
+.studio-card--sticker {
+  background: transparent !important;
+  border: 1px dashed transparent !important;
+  box-shadow: none !important;
+  /* The outer card box is invisible, so let clicks fall through to whatever
+     is behind it. The visible glyph/image re-enables pointer events for itself
+     in JSX, and the .studio-card-controls / .studio-card-resize handles
+     opt back in via the rule below. */
+  pointer-events: none !important;
+}
+.studio-card--sticker:hover {
+  box-shadow: none !important;
+  border-color: rgba(0,0,0,0.12) !important;
+}
+/* Re-enable interaction on the parts of a sticker card that actually need it:
+   the visible glyph/image (handled inline in JSX), the corner controls, and
+   the resize handle. */
+.studio-card--sticker .studio-card-controls,
+.studio-card--sticker .studio-card-resize,
+.studio-card--sticker .studio-card-sticker-image {
+  pointer-events: auto;
+}
+.studio-card-sticker-image {
+  max-width: 100%;
+  max-height: 100%;
+  display: block;
 }
 
 .studio-card-text-wrap {

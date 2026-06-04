@@ -1,0 +1,467 @@
+/* QuizPage.css
+   ─────────────────────────────────────────────────────────────────────────
+   Scoped styles for the Style Quiz. Inherits all design tokens from App.css.
+   Reuses the cardIn / floatUp / --ease conventions from the rest of the app.
+   No new fonts, no new colors except per-archetype accent gradients applied
+   inline on the result page.
+*/
+
+.quiz-shell {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 4rem 2rem 5rem;
+  position: relative;
+  z-index: 1;
+  transition: opacity 0.2s var(--ease, ease-out);
+}
+
+.quiz-shell.fading {
+  opacity: 0.05;
+}
+
+/* ── INTRO ────────────────────────────────────────────────────────────── */
+.quiz-intro {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1.5rem;
+  animation: cardIn 0.7s var(--ease, cubic-bezier(0.16, 1, 0.3, 1)) both;
+}
+
+.quiz-intro-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.quiz-intro-title {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 500;
+  font-size: clamp(3rem, 7vw, 5.5rem);
+  line-height: 1;
+  letter-spacing: -0.01em;
+  color: var(--parch);
+  margin: 0;
+}
+
+.quiz-intro-title em {
+  font-style: italic;
+  background: linear-gradient(110deg, var(--rg) 0%, var(--mist) 100%);
+  -webkit-background-clip: text;
+          background-clip: text;
+  color: transparent;
+}
+
+.quiz-intro-body {
+  max-width: 38ch;
+  color: var(--text-2, #9aaab6);
+  font-family: var(--font-body);
+  font-size: 1.05rem;
+  line-height: 1.55;
+  margin: 0.5rem 0 0;
+}
+
+.quiz-intro-actions {
+  display: flex;
+  gap: 1rem;
+  margin-top: 0.75rem;
+  flex-wrap: wrap;
+}
+
+/* ── PROGRESS ─────────────────────────────────────────────────────────── */
+.quiz-progress {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  margin-bottom: 2.5rem;
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.quiz-progress-track {
+  flex: 1;
+  height: 1px;
+  background: rgba(220, 232, 240, 0.10);
+  position: relative;
+  overflow: hidden;
+}
+
+.quiz-progress-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: linear-gradient(90deg, var(--rg) 0%, var(--mist) 100%);
+  transition: width 0.45s var(--ease, cubic-bezier(0.16, 1, 0.3, 1));
+}
+
+/* ── QUESTION ─────────────────────────────────────────────────────────── */
+.quiz-question {
+  animation: cardIn 0.55s var(--ease, cubic-bezier(0.16, 1, 0.3, 1)) both;
+}
+
+.quiz-question-prompt {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 500;
+  font-size: clamp(2.2rem, 5.2vw, 3.8rem);
+  line-height: 1.05;
+  letter-spacing: -0.005em;
+  color: var(--parch);
+  margin: 0 0 0.5rem;
+}
+
+.quiz-question-caption {
+  font-family: var(--font-body);
+  color: var(--text-3);
+  font-size: 0.95rem;
+  margin: 0 0 2.5rem;
+}
+
+/* ── TILE GRID ────────────────────────────────────────────────────────── */
+.quiz-tile-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1.1rem;
+}
+
+.quiz-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  text-align: left;
+  padding: 1.1rem 1.2rem 1.3rem;
+  background: rgba(8, 11, 22, 0.55);
+  border: 1px solid rgba(220, 232, 240, 0.08);
+  border-radius: 14px;
+  cursor: pointer;
+  color: var(--parch);
+  font: inherit;
+  overflow: hidden;
+  transition: transform 0.35s var(--ease, cubic-bezier(0.16, 1, 0.3, 1)),
+              border-color 0.25s ease,
+              background 0.25s ease;
+  animation: cardIn 0.55s var(--ease, cubic-bezier(0.16, 1, 0.3, 1)) both;
+  animation-delay: calc(var(--i, 0) * 75ms + 100ms);
+}
+
+.quiz-tile:hover {
+  transform: translateY(-3px);
+  border-color: rgba(220, 232, 240, 0.18);
+  background: rgba(12, 16, 28, 0.7);
+}
+
+.quiz-tile.is-selected {
+  border-color: var(--rg);
+  background: rgba(154, 184, 204, 0.06);
+}
+
+.quiz-tile-swatch {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 180px;
+  border-radius: 8px;
+  background: var(--swatch, linear-gradient(160deg, #2a3344, #0e1424));
+  margin-bottom: 0.9rem;
+  box-shadow: inset 0 0 0 1px rgba(220, 232, 240, 0.05);
+  overflow: hidden;
+  isolation: isolate;
+}
+
+/* Real Unsplash photo, lazy-loaded. Sits between gradient and tint. */
+.quiz-tile-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  z-index: 1;
+  opacity: 0;
+  transition: opacity 0.6s var(--ease, ease-out), transform 0.7s var(--ease, ease-out);
+  transform: scale(1.02);
+}
+
+.quiz-tile-img[src] {
+  opacity: 1;
+}
+
+/* Subtle vignette + cool-mountain tint so the white labels stay readable
+   over even the brightest photos. Matches Moodscape's mountain-dusk palette. */
+.quiz-tile-swatch-tint {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  background:
+    linear-gradient(180deg,
+      rgba(8, 11, 22, 0.15) 0%,
+      rgba(8, 11, 22, 0.05) 40%,
+      rgba(8, 11, 22, 0.55) 100%),
+    var(--swatch, linear-gradient(160deg, transparent, transparent));
+  background-blend-mode: normal, soft-light;
+  pointer-events: none;
+}
+
+.quiz-tile:hover .quiz-tile-img {
+  transform: scale(1.06);
+}
+
+.quiz-tile-label {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 1.35rem;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  color: var(--parch);
+  margin-bottom: 0.3rem;
+}
+
+.quiz-tile-whisper {
+  font-family: var(--font-body);
+  font-size: 0.83rem;
+  color: var(--text-3);
+  line-height: 1.4;
+}
+
+/* ── LIKERT ROW ───────────────────────────────────────────────────────── */
+.quiz-likert-row {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 0.6rem;
+  margin-top: 0.5rem;
+}
+
+.quiz-likert {
+  font-family: var(--font-body);
+  font-size: 0.85rem;
+  line-height: 1.25;
+  text-align: center;
+  color: var(--parch);
+  padding: 1.1rem 0.6rem;
+  background: rgba(8, 11, 22, 0.55);
+  border: 1px solid rgba(220, 232, 240, 0.08);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: transform 0.3s var(--ease, ease-out),
+              border-color 0.25s ease, background 0.25s ease;
+  animation: cardIn 0.55s var(--ease, cubic-bezier(0.16, 1, 0.3, 1)) both;
+  animation-delay: calc(var(--i, 0) * 60ms + 100ms);
+}
+
+.quiz-likert:hover {
+  transform: translateY(-2px);
+  border-color: rgba(220, 232, 240, 0.18);
+}
+
+.quiz-likert.is-selected {
+  border-color: var(--rg);
+  background: rgba(154, 184, 204, 0.06);
+}
+
+/* ── NAV ROW ──────────────────────────────────────────────────────────── */
+.quiz-nav-row {
+  display: flex;
+  justify-content: flex-start;
+  margin-top: 2rem;
+}
+
+/* ── BUTTONS ──────────────────────────────────────────────────────────── */
+.quiz-btn-primary {
+  position: relative;
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--parch);
+  background: linear-gradient(90deg, rgba(154,184,204,0.18) 0%, rgba(142,159,196,0.18) 100%);
+  border: 1px solid rgba(220, 232, 240, 0.18);
+  padding: 1.05rem 1.8rem;
+  cursor: pointer;
+  overflow: hidden;
+  transition: transform 0.3s var(--ease, ease-out), border-color 0.25s ease;
+}
+
+.quiz-btn-primary::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(120deg,
+              transparent 0%,
+              rgba(220, 232, 240, 0.15) 50%,
+              transparent 100%);
+  transform: translateX(-100%);
+  transition: transform 0.7s var(--ease, ease-out);
+}
+
+.quiz-btn-primary:hover {
+  transform: translateY(-1px);
+  border-color: var(--rg);
+}
+
+.quiz-btn-primary:hover::after {
+  transform: translateX(100%);
+}
+
+.quiz-btn-ghost {
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  background: transparent;
+  border: 1px solid rgba(220, 232, 240, 0.12);
+  padding: 1.05rem 1.4rem;
+  cursor: pointer;
+  transition: color 0.2s ease, border-color 0.25s ease;
+}
+
+.quiz-btn-ghost:hover {
+  color: var(--rg-light, var(--parch));
+  border-color: rgba(220, 232, 240, 0.25);
+}
+
+/* ── RESULT ───────────────────────────────────────────────────────────── */
+.quiz-result {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1.1rem;
+  animation: cardIn 0.7s var(--ease, cubic-bezier(0.16, 1, 0.3, 1)) both;
+}
+
+.quiz-result-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.quiz-result-name {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 500;
+  font-size: clamp(3.5rem, 9vw, 6rem);
+  line-height: 0.95;
+  letter-spacing: -0.015em;
+  margin: 0;
+}
+
+.quiz-result-runner {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 1.5rem;
+  color: var(--text-3);
+  margin: 0;
+}
+
+.quiz-result-blurb {
+  font-family: var(--font-body);
+  font-size: 1.05rem;
+  line-height: 1.55;
+  color: var(--text-2, #9aaab6);
+  max-width: 52ch;
+  margin: 0.4rem 0 0.8rem;
+}
+
+.quiz-meter-wrap {
+  align-self: center;
+  margin: 1.5rem 0 1rem;
+}
+
+.vibe-meter {
+  display: block;
+}
+
+.vm-label {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  letter-spacing: 0.22em;
+  fill: var(--text-3);
+}
+
+/* ── SEED CARD ────────────────────────────────────────────────────────── */
+.quiz-seed-card {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  background: rgba(8, 11, 22, 0.6);
+  border: 1px solid rgba(220, 232, 240, 0.08);
+  border-radius: 12px;
+  padding: 1.2rem 1.4rem;
+  margin: 0.5rem 0 1rem;
+}
+
+.quiz-seed-row {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: 1rem;
+  font-family: var(--font-body);
+  font-size: 0.92rem;
+  color: var(--parch);
+  line-height: 1.45;
+}
+
+.quiz-seed-label {
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  padding-top: 0.15rem;
+}
+
+.quiz-seed-value {
+  color: var(--text-2, #c8d3da);
+}
+
+.quiz-result-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-top: 0.5rem;
+}
+
+/* ── MOBILE ───────────────────────────────────────────────────────────── */
+@media (max-width: 720px) {
+  .quiz-shell {
+    padding: 2.5rem 1.2rem 4rem;
+  }
+  .quiz-tile-grid {
+    grid-template-columns: 1fr;
+  }
+  .quiz-tile-swatch {
+    height: 140px;
+  }
+  .quiz-likert-row {
+    grid-template-columns: 1fr;
+  }
+  .quiz-seed-row {
+    grid-template-columns: 1fr;
+    gap: 0.25rem;
+  }
+}
+
+/* meta helper reused for the missing-result fallback */
+.quiz-meta {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  margin-bottom: 1.2rem;
+}
+
+.quiz-card {
+  background: rgba(8, 11, 22, 0.6);
+  border: 1px solid rgba(220, 232, 240, 0.1);
+  border-radius: 12px;
+  padding: 2rem;
+}

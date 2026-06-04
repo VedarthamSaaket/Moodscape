@@ -284,7 +284,7 @@ export default function HomePage() {
               filter: 'drop-shadow(0 4px 28px rgba(0,0,0,0.58))',
               textAlign: 'center',
             }}>
-              MoodScape
+              M<span style={{ marginLeft: '2px', marginRight: '2px' }}>&amp;</span>M
             </h1>
           </div>
 
@@ -302,14 +302,14 @@ export default function HomePage() {
           {/* CTAs */}
           <div style={{ marginTop: '38px', display: 'flex', gap: '10px', animation: 'heroIn 1.0s cubic-bezier(0.16,1,0.3,1) 0.5s both' }}>
             {isLoggedIn
-              ? <Link to="/generator" className="btn-gold">Open Generator</Link>
+              ? <Link to="/generator" className="btn-gold">Enter</Link>
               : <><Link to="/signup" className="btn-gold">Begin</Link><Link to="/signin" className="btn-ghost">Sign In</Link></>
             }
           </div>
 
           {/* Stat strip */}
           <div style={{ marginTop: '48px', display: 'flex', gap: '0', border: '1px solid rgba(154,184,204,0.09)', animation: 'heroIn 1.0s cubic-bezier(0.16,1,0.3,1) 0.65s both' }}>
-            {[['Instant', 'Generation'], ['Native', 'Spotify Sync'], ['Zero', 'Genre Theory']].map(([a, b], i) => (
+            {[['Type a Feeling', 'AI Playlists'], ['Drag & Drop', 'Moodboards'], ['Native', 'Spotify Sync']].map(([a, b], i) => (
               <div key={i} style={{ padding: '14px 26px', borderLeft: i > 0 ? '1px solid rgba(154,184,204,0.09)' : 'none', textAlign: 'center' }}>
                 <div style={{ fontFamily: 'var(--font-display)', fontSize: '0.80rem', fontWeight: 700, color: 'rgba(194,217,232,0.78)', letterSpacing: '0.04em' }}>{a}</div>
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.44rem', letterSpacing: '0.22em', textTransform: 'uppercase', color: 'rgba(154,184,204,0.28)', marginTop: '3px' }}>{b}</div>
@@ -339,7 +339,7 @@ export default function HomePage() {
                 <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.48rem', letterSpacing: '0.28em', textTransform: 'uppercase', color: 'rgba(154,184,204,0.48)', display: 'block', marginBottom: '16px' }}>Manifesto</span>
                 <div style={{ width: '1px', height: '68px', background: 'linear-gradient(180deg, rgba(154,184,204,0.38), rgba(154,184,204,0.04))' }} />
                 <div style={{ marginTop: '14px', fontFamily: 'var(--font-mono)', fontSize: '0.44rem', letterSpacing: '0.20em', textTransform: 'uppercase', color: 'rgba(154,184,204,0.22)', lineHeight: 2.2 }}>
-                  <div>Emotion</div><div>Frequency</div><div>Sound</div>
+                  <div>Emotion</div><div>Frequency</div><div>Moodboards</div>
                 </div>
               </div>
               <div>
@@ -354,6 +354,37 @@ export default function HomePage() {
                     </div>
                   ))}
                 </div>
+              </div>
+            </div>
+          </Reveal>
+        </section>
+
+        <div className="section-rule" />
+
+        {/* ── STUDIO TEASER ── */}
+        <section style={{ maxWidth: '1000px', margin: '0 auto', padding: '80px 52px 70px', position: 'relative' }}>
+          <Reveal>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '60px', alignItems: 'center' }}>
+              <div>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.48rem', letterSpacing: '0.28em', textTransform: 'uppercase', color: 'rgba(154,184,204,0.48)', display: 'block', marginBottom: '14px' }}>Studio</span>
+                <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(2rem,4.2vw,3rem)', fontWeight: 700, fontStyle: 'italic', lineHeight: 1.06, margin: '0 0 18px' }}>
+                  Your mood,<br />
+                  <span style={{ background: 'linear-gradient(90deg, rgba(194,217,232,0.95), rgba(184,198,224,0.80))', WebkitBackgroundClip: 'text', backgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>your board</span>
+                </h2>
+                <p style={{ fontFamily: 'var(--font-editorial)', fontSize: '0.92rem', fontWeight: 300, fontStyle: 'italic', color: 'var(--text-2)', lineHeight: 1.75, marginBottom: '24px' }}>
+                  Drag images, drop text, scatter shapes.<br />
+                  A freeform canvas that feels like your notebook, not a tool.
+                </p>
+                <Link to="/studio" className="btn-gold" style={{ fontSize: '0.62rem' }}>Open Studio</Link>
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', justifyContent: 'center', opacity: 0.65 }}>
+                {['▖', '◉', '✦', '⬡', '△', '▥', '♫', '◇', '☽', '⚜', '▚', '❦', '○', '⬤', '◈', '☯'].map((g, i) => (
+                  <span key={i} style={{
+                    width: '46px', height: '46px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    border: '1px solid rgba(154,184,204,0.12)', fontSize: '1.1rem',
+                    color: i % 3 === 0 ? 'rgba(194,217,232,0.55)' : i % 3 === 1 ? 'rgba(184,198,224,0.38)' : 'rgba(154,184,204,0.25)',
+                  }}>{g}</span>
+                ))}
               </div>
             </div>
           </Reveal>
@@ -413,17 +444,56 @@ export default function HomePage() {
               </h2>
             </div>
           </Reveal>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1px', background: 'rgba(154,184,204,0.055)' }}>
-            {FEATURES.map((f, i) => (
-              <Reveal key={i} delay={i * 55}>
-                <div className="feat-tile" style={{ padding: '32px 28px', background: '#02040b', position: 'relative' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.46rem', letterSpacing: '0.22em', color: 'rgba(154,184,204,0.40)' }}>{f.n}</span>
+
+          {/* Dominant lead feature — emotion-first */}
+          <Reveal>
+            <div className="feat-tile" style={{ padding: '42px 38px', background: '#02040b', border: '1px solid rgba(154,184,204,0.05)', marginBottom: '1px', position: 'relative', overflow: 'hidden' }}>
+              <div style={{ position: 'absolute', top: 0, left: 0, width: '2px', height: '100%', background: 'linear-gradient(180deg, rgba(194,217,232,0.50), rgba(184,198,224,0.12))' }} />
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '48px' }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.46rem', letterSpacing: '0.22em', color: 'rgba(154,184,204,0.40)' }}>01</span>
                     <div style={{ width: '18px', height: '1px', background: 'rgba(154,184,204,0.22)' }} />
+                    <span style={{ fontFamily: 'var(--font-editorial)', fontSize: '0.72rem', fontStyle: 'italic', color: 'rgba(194,217,232,0.55)' }}>the core principle</span>
                   </div>
-                  <h4 style={{ fontFamily: 'var(--font-display)', fontSize: '1.04rem', fontWeight: 700, fontStyle: 'italic', color: 'rgba(220,234,248,0.88)', marginBottom: '4px', lineHeight: 1.18 }}>{f.title}</h4>
-                  <p style={{ fontFamily: 'var(--font-editorial)', fontSize: '0.78rem', fontStyle: 'italic', color: 'rgba(194,217,232,0.48)', marginBottom: '12px', letterSpacing: '0.04em' }}>{f.sub}</p>
-                  <p style={{ fontFamily: 'var(--font-mono)', fontSize: '0.63rem', fontWeight: 300, color: 'var(--text-2)', lineHeight: 1.80 }}>{f.body}</p>
+                  <h4 style={{ fontFamily: 'var(--font-display)', fontSize: '1.4rem', fontWeight: 700, fontStyle: 'italic', color: 'rgba(220,234,248,0.92)', marginBottom: '6px', lineHeight: 1.18 }}>{FEATURES[0].title}</h4>
+                  <p style={{ fontFamily: 'var(--font-editorial)', fontSize: '0.84rem', fontStyle: 'italic', color: 'rgba(194,217,232,0.52)', marginBottom: '14px', letterSpacing: '0.04em' }}>{FEATURES[0].sub}</p>
+                  <p style={{ fontFamily: 'var(--font-mono)', fontSize: '0.66rem', fontWeight: 300, color: 'var(--text-2)', lineHeight: 1.80, maxWidth: '520px' }}>{FEATURES[0].body}</p>
+                </div>
+                <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '4px' }}>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.44rem', letterSpacing: '0.18em', color: 'rgba(154,184,204,0.20)', writingMode: 'vertical-rl' }}>emotion → frequency → sound</span>
+                </div>
+              </div>
+            </div>
+          </Reveal>
+
+          {/* Supporting features in asymmetric 3 + 2 layout */}
+          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '1px', background: 'rgba(154,184,204,0.055)', marginBottom: '1px' }}>
+            {FEATURES.slice(1, 4).map((f, i) => (
+              <Reveal key={i + 1} delay={i * 55}>
+                <div className="feat-tile" style={{ padding: i === 0 ? '38px 34px' : '28px 22px', background: '#02040b', position: 'relative' }}>
+                  <div style={{ marginBottom: i === 0 ? '18px' : '14px' }}>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.44rem', letterSpacing: '0.20em', color: 'rgba(154,184,204,0.38)' }}>{f.n}</span>
+                  </div>
+                  <h4 style={{ fontFamily: 'var(--font-display)', fontSize: i === 0 ? '1.2rem' : '0.9rem', fontWeight: 700, fontStyle: 'italic', color: 'rgba(220,234,248,0.88)', marginBottom: '4px', lineHeight: 1.18 }}>{f.title}</h4>
+                  <p style={{ fontFamily: 'var(--font-editorial)', fontSize: '0.68rem', fontStyle: 'italic', color: 'rgba(194,217,232,0.40)', marginBottom: i === 0 ? '11px' : '8px', letterSpacing: '0.03em' }}>{f.sub}</p>
+                  <p style={{ fontFamily: 'var(--font-mono)', fontSize: '0.60rem', fontWeight: 300, color: 'var(--text-2)', lineHeight: 1.70 }}>{f.body}</p>
+                </div>
+              </Reveal>
+            ))}
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1px', background: 'rgba(154,184,204,0.055)' }}>
+            {FEATURES.slice(4, 6).map((f, i) => (
+              <Reveal key={i + 4} delay={i * 55 + 120}>
+                <div className="feat-tile" style={{ padding: '24px 26px', background: '#02040b', position: 'relative' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.44rem', letterSpacing: '0.20em', color: 'rgba(154,184,204,0.38)' }}>{f.n}</span>
+                    <div style={{ flex: 1, height: '1px', background: 'rgba(154,184,204,0.10)' }} />
+                  </div>
+                  <h4 style={{ fontFamily: 'var(--font-display)', fontSize: '0.88rem', fontWeight: 700, fontStyle: 'italic', color: 'rgba(220,234,248,0.86)', marginBottom: '3px', lineHeight: 1.18 }}>{f.title}</h4>
+                  <p style={{ fontFamily: 'var(--font-editorial)', fontSize: '0.64rem', fontStyle: 'italic', color: 'rgba(194,217,232,0.36)', marginBottom: '6px', letterSpacing: '0.02em' }}>{f.sub}</p>
+                  <p style={{ fontFamily: 'var(--font-mono)', fontSize: '0.58rem', fontWeight: 300, color: 'var(--text-2)', lineHeight: 1.65 }}>{f.body}</p>
                 </div>
               </Reveal>
             ))}
@@ -546,7 +616,7 @@ export default function HomePage() {
             </div>
             <div style={{ display: 'flex', gap: '10px', position: 'relative', zIndex: 1 }}>
               {isLoggedIn
-                ? <Link to="/generator" className="btn-gold">Open Generator</Link>
+                ? <Link to="/generator" className="btn-gold">Enter</Link>
                 : <><Link to="/signup" className="btn-gold">Get Started</Link><Link to="/signin" className="btn-ghost">Sign In</Link></>
               }
             </div>

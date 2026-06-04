@@ -479,12 +479,12 @@ button:focus-visible {
   background:
     linear-gradient(148deg,
       rgba(142, 159, 196, 0.06) 0%,
-      rgba(7, 10, 22, 0.92) 38%,
+      rgba(7, 10, 22, 0.96) 38%,
       rgba(154, 184, 204, 0.03) 100%);
   padding: 50px 54px 46px;
   border-radius: 22px;
-  backdrop-filter: blur(48px) saturate(180%);
-  -webkit-backdrop-filter: blur(48px) saturate(180%);
+  backdrop-filter: blur(14px) saturate(160%);
+  -webkit-backdrop-filter: blur(14px) saturate(160%);
   border: 1px solid rgba(255, 255, 255, 0.06);
   box-shadow:
     0 52px 100px rgba(0, 0, 0, 0.62),
@@ -1180,9 +1180,9 @@ button:focus-visible {
   justify-content: space-between;
   align-items: center;
   z-index: 100;
-  background: rgba(5, 7, 16, 0.80);
-  backdrop-filter: blur(28px) saturate(160%);
-  -webkit-backdrop-filter: blur(28px) saturate(160%);
+  background: rgba(5, 7, 16, 0.88);
+  backdrop-filter: blur(10px) saturate(140%);
+  -webkit-backdrop-filter: blur(10px) saturate(140%);
   border-bottom: 1px solid rgba(255, 255, 255, 0.038);
 }
 
@@ -1242,6 +1242,67 @@ button:focus-visible {
   color: var(--rg-light);
 }
 
+/* ── Top-bar tabs: Generator · Moodboard · Quiz ── */
+.gen-tab-bar {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.gen-tab {
+  position: relative;
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  font-weight: 400;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  text-decoration: none;
+  padding: 6px 2px;
+  transition: color 0.24s var(--ease);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.gen-tab::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: linear-gradient(90deg,
+      transparent 0%,
+      rgba(154, 184, 204, 0.85) 30%,
+      rgba(184, 198, 224, 0.70) 55%,
+      rgba(142, 159, 196, 0.75) 80%,
+      transparent 100%);
+  transform: scaleX(0);
+  transform-origin: center;
+  transition: transform 0.36s var(--ease);
+}
+
+.gen-tab:hover {
+  color: var(--rg);
+}
+
+.gen-tab.active {
+  color: var(--rg-light);
+}
+
+.gen-tab.active::after {
+  transform: scaleX(1);
+}
+
+@media (max-width: 720px) {
+  .gen-tab-bar { gap: 18px; }
+  .gen-tab { font-size: 0.54rem; letter-spacing: 0.16em; }
+}
+
 .generator-content {
   padding-top: 72px;
   padding-bottom: 64px;
@@ -1274,8 +1335,8 @@ button:focus-visible {
   margin-top: 40px;
   margin-bottom: 40px;
   color: var(--text);
-  backdrop-filter: blur(52px) saturate(180%);
-  -webkit-backdrop-filter: blur(52px) saturate(180%);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
   animation: cardIn .65s var(--ease) both;
   position: relative;
   overflow: visible;
@@ -1910,7 +1971,7 @@ button:focus-visible {
   max-height: 86vh;
   overflow-y: auto;
   color: var(--text);
-  backdrop-filter: blur(48px) saturate(200%);
+  backdrop-filter: blur(14px) saturate(180%);
   animation: cardIn .6s var(--ease) both;
   position: relative;
 }

@@ -1,12 +1,13 @@
-import { useState, useRef, useEffect, useCallback, useContext } from "react";
-import { useNavigate, Link } from "react-router-dom";
-import { AuthContext } from "../AuthContext";
+import { useState, useRef, useEffect, useCallback } from "react";
+import { toJpeg } from "html-to-image";
 import useStudioStore from "../store";
 import { ALL_PALETTES, FP_PALETTES } from "./themes";
+import STICKER_PACKS from "../sticker-manifest.json";
 import "./StudioPage.css";
 
 const UNSPLASH_KEY = import.meta.env.VITE_UNSPLASH_KEY || "";
 const PEXELS_KEY = import.meta.env.VITE_PEXELS_KEY || "";
+const NASA_KEY = import.meta.env.VITE_NASA_API_KEY || "";
 
 const ABSTRACT_SOURCES = [
   { thumb: "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a4/Vassily_Kandinsky%2C_1913_-_Composition_7.jpg/400px-Vassily_Kandinsky%2C_1913_-_Composition_7.jpg", full: "https://upload.wikimedia.org/wikipedia/commons/a/a4/Vassily_Kandinsky%2C_1913_-_Composition_7.jpg", alt: "Kandinsky – Composition VII", attribution: "Kandinsky, Wikimedia Commons" },
@@ -74,23 +75,40 @@ const GENRE_STYLES = {
 };
 
 const SHAPE_TYPES = ["void", "frequency", "grid", "silhouette", "editorial"];
-const IMG_TABS = ["Photos", "Art"];
+const imgTabs = ["Photos", "Museum", "Space", "Stickers"];
 
-const LAYOUTS = [
-  { id: "freeform", icon: "▣" },
-  { id: "magazine", icon: "▦" },
-  { id: "lookbook", icon: "▤" },
-  { id: "editorial", icon: "▥" },
-  { id: "collage", icon: "▲" },
-];
+const STICKER_LABELS = {
+  "pack 1": { label: "Animals", color: "#7a9e7e" },
+  "pack 2": { label: "Art", color: "#9b7fd4" },
+  "pack 3": { label: "Astrology", color: "#8b7355" },
+  "pack 4": { label: "Books", color: "#c4913a" },
+  "pack 5": { label: "Botanical", color: "#7a9e7e" },
+  "pack 6": { label: "Café", color: "#8b7355" },
+  "pack 7": { label: "Cats", color: "#c9897a" },
+  "pack 8": { label: "Celestial", color: "#9b7fd4" },
+  "pack 9": { label: "Cottagecore", color: "#7a9e7e" },
+  "pack 10": { label: "Academia", color: "#8b7355" },
+  "pack 11": { label: "Dreams", color: "#9b7fd4" },
+  "pack 12": { label: "Emotions", color: "#d4af37" },
+  "pack 13": { label: "Fantasy", color: "#9b7fd4" },
+  "pack 14": { label: "Floral", color: "#c9897a" },
+  "pack 15": { label: "Food", color: "#c4913a" },
+  "pack 16": { label: "Gothic", color: "#8b7355" },
+  "pack 17": { label: "Hearts", color: "#c9897a" },
+  "pack 18": { label: "Kawaii", color: "#c9897a" },
+  "pack 19": { label: "Mindful", color: "#9b7fd4" },
+  "pack 20": { label: "Music", color: "#d4af37" },
+  "pack 21": { label: "Nature", color: "#7a9e7e" },
+  "pack 22": { label: "Stars", color: "#d4af37" },
+  "pack 23": { label: "Vintage", color: "#8b7355" },
+};
 
 const PANEL_SECTIONS = [
   { id: "add", label: "ADD CARDS" },
   { id: "images", label: "IMAGE SEARCH" },
-  { id: "genre", label: "GENRE" },
   { id: "palette", label: "COLOUR PALETTES" },
-  { id: "shapes", label: "QUIZ SHAPES" },
-  { id: "stickers", label: "STICKERS" },
+  { id: "art", label: "ABSTRACT ART" },
+  { id: "emoticons", label: "EMOTICONS" },
 ];
 
 function uid() {
@@ -280,16 +298,18 @@ export default function StudioPage() {
     fingerprint, savedShapes, setFingerprint, addSavedShape,
   } = useStudioStore();
 
-  const { isLoggedIn, setIsLoggedIn } = useContext(AuthContext);
-  const navigate = useNavigate();
-
   const activeBoard = boards.find((b) => b.id === activeBoardId) || boards[0];
   const [layout, setLayout] = useState(activeBoard?.layout || "freeform");
   const [openSections, setOpenSections] = useState(["add"]);
   const [imgQuery, setImgQuery] = useState("");
   const [imgResults, setImgResults] = useState([]);
   const [imgLoading, setImgLoading] = useState(false);
+  const [metResults, setMetResults] = useState([]);
+  const [metLoading, setMetLoading] = useState(false);
+  const [nasaResults, setNasaResults] = useState([]);
+  const [nasaLoading, setNasaLoading] = useState(false);
   const [imgTab, setImgTab] = useState("Photos");
+  const [activeStickerPack, setActiveStickerPack] = useState(Object.keys(STICKER_PACKS)[0] || "pack 1");
   const [boardDropOpen, setBoardDropOpen] = useState(false);
   const [eraseDropOpen, setEraseDropOpen] = useState(false);
   const [toast, setToast] = useState("");
@@ -298,18 +318,47 @@ export default function StudioPage() {
   const [newBoardName, setNewBoardName] = useState("");
   const [eraseConfirmModal, setEraseConfirmModal] = useState(null);
   const [paletteSearch, setPaletteSearch] = useState("");
-  const [selectedGenre, setSelectedGenre] = useState(null);
+  const [activePalette, setActivePalette] = useState(null);
+  const [selectedCardId, setSelectedCardId] = useState(null);
+  const [saveBoardModal, setSaveBoardModal] = useState(false);
+  const [saveBoardName, setSaveBoardName] = useState("");
+  const boardSavedRef = useRef(false);
   const zRef = useRef(10);
+  const canvasRef = useRef(null);
 
-  const currentStyle = selectedGenre && GENRE_STYLES[selectedGenre]
-    ? GENRE_STYLES[selectedGenre]
-    : { bg: "#f5f0e8", text: "#2a2018" };
+  useEffect(() => {
+    boardSavedRef.current = activeBoard?.name !== 'My First Board';
+  }, [activeBoardId, activeBoard?.name]);
+
+  const currentStyle = { bg: "#f5f0e8", text: "#2a2018" };
 
   const showToast = useCallback((msg) => {
     setToast(msg);
     setToastVisible(true);
     setTimeout(() => setToastVisible(false), 2200);
   }, []);
+
+  const downloadAsJpeg = useCallback(async () => {
+    const el = canvasRef.current;
+    if (!el) return;
+    setSelectedCardId(null);
+    // Brief delay to let the controls/selection to disappear
+    await new Promise(r => setTimeout(r, 80));
+    try {
+      const dataUrl = await toJpeg(el, {
+        quality: 0.95,
+        backgroundColor: currentStyle.bg,
+        pixelRatio: 2,
+      });
+      const link = document.createElement("a");
+      link.download = `${activeBoard?.name || "moodboard"}.jpeg`;
+      link.href = dataUrl;
+      link.click();
+      showToast("Downloaded as JPEG");
+    } catch {
+      showToast("Download failed");
+    }
+  }, [activeBoard?.name, currentStyle.bg]);
 
   const saveBoard = useCallback(
     (board) => {
@@ -325,6 +374,22 @@ export default function StudioPage() {
     },
     [activeBoard, saveBoard]
   );
+
+  const findEmptySpot = useCallback((w, h) => {
+    const existing = activeBoard?.cards || [];
+    const step = 40;
+    const maxX = 1000, maxY = 700;
+    for (let y = 60; y < maxY - h; y += step) {
+      for (let x = 60; x < maxX - w; x += step) {
+        const overlaps = existing.some(c => {
+          if (c.type === 'sticker' || (c.type === 'image' && c.content?.attribution === 'Sticker')) return false;
+          return x < c.x + c.w && x + w > c.x && y < c.y + c.h && y + h > c.y;
+        });
+        if (!overlaps) return { x, y };
+      }
+    }
+    return { x: 60 + Math.random() * 120, y: 60 + Math.random() * 120 };
+  }, [activeBoard]);
 
   const deleteCard = useCallback(
     (id) => {
@@ -345,98 +410,179 @@ export default function StudioPage() {
     [activeBoard, saveBoard, showToast]
   );
 
-  const searchImages = async () => {
+  const colorNamesFromPalette = (cols) => {
+    return cols.map(c => {
+      const r = parseInt(c.slice(1,3), 16), g = parseInt(c.slice(3,5), 16), b = parseInt(c.slice(5,7), 16);
+      const max = Math.max(r,g,b), min = Math.min(r,g,b);
+      if (max - min < 30) return '';
+      if (r > g && r > b) return r > 180 ? 'pink' : 'red';
+      if (g > r && g > b) return g > 180 ? 'mint' : 'green';
+      if (b > r && b > g) return b > 180 ? 'sky' : 'blue';
+      if (max < 80) return 'dark';
+      if (min > 200) return 'cream';
+      if (r > 150 && g > 120 && b < 100) return 'golden';
+      return '';
+    }).filter(Boolean).slice(0, 2).join(' ');
+  };
+
+  const searchImages = async (append = false) => {
     if (!imgQuery.trim()) return;
     setImgLoading(true);
-    const results = [];
+    let query = imgQuery;
+    const paletteColors = activePalette?.colours ? colorNamesFromPalette(activePalette.colours) : '';
+    if (paletteColors) query = `${paletteColors} ${imgQuery}`;
+    const currentResults = append ? imgResults : [];
+    const page = append ? Math.floor(currentResults.length / 30) + 1 : 1;
+    const results = append ? [...currentResults] : [];
+
     try {
       if (UNSPLASH_KEY) {
-        const res = await fetch(`https://api.unsplash.com/search/photos?query=${encodeURIComponent(imgQuery)}&per_page=12&orientation=landscape`, { headers: { Authorization: `Client-ID ${UNSPLASH_KEY}`, "Accept-Version": "v1" } });
+        const res = await fetch(`https://api.unsplash.com/search/photos?query=${encodeURIComponent(query)}&per_page=30&page=${page}&orientation=landscape`, { headers: { Authorization: `Client-ID ${UNSPLASH_KEY}`, "Accept-Version": "v1" } });
         const data = await res.json();
         results.push(...(data.results || []).map((p) => ({ thumb: p.urls.small, full: p.urls.regular, alt: p.alt_description || imgQuery, attribution: `${p.user.name}, Unsplash` })));
       }
     } catch {}
     try {
       if (PEXELS_KEY) {
-        const res = await fetch(`https://api.pexels.com/v1/search?query=${encodeURIComponent(imgQuery)}&per_page=12`, { headers: { Authorization: PEXELS_KEY } });
+        const res = await fetch(`https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=30&page=${page}`, { headers: { Authorization: PEXELS_KEY } });
         const data = await res.json();
         results.push(...(data.photos || []).map((p) => ({ thumb: p.src.medium, full: p.src.large, alt: p.alt || imgQuery, attribution: `${p.photographer}, Pexels` })));
       }
     } catch {}
-    if (!results.length) showToast("Add API keys in .env");
+
+    if (!append) {
+      try {
+        const wikiQuery = paletteColors ? `${paletteColors} ${imgQuery} art` : `${imgQuery} art`;
+        const url = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(wikiQuery)}&srnamespace=6&format=json&origin=*&srlimit=8`;
+        const res = await fetch(url);
+        const data = await res.json();
+        const titles = (data.query?.search || []).map((r) => r.title);
+        if (titles.length) {
+          const infoUrl = `https://en.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(titles.slice(0, 6).join("|"))}&prop=imageinfo&iiprop=url|thumburl|extmetadata&iiurlwidth=400&format=json&origin=*`;
+          const infoRes = await fetch(infoUrl);
+          const infoData = await infoRes.json();
+          const pages = Object.values(infoData.query?.pages || {});
+          const wikiResults = pages.filter(p => p.imageinfo?.[0]?.thumburl).map(p => ({
+            thumb: p.imageinfo[0].thumburl,
+            full: p.imageinfo[0].url,
+            alt: p.title?.replace("File:", "").replace(/\.[^.]+$/, "") || imgQuery,
+            attribution: p.imageinfo[0].extmetadata?.Artist?.value?.replace(/<[^>]*>/g, "") || "Wikimedia Commons",
+          }));
+          results.push(...wikiResults);
+        }
+      } catch {}
+    }
+
+    if (!results.length) showToast("No results found");
     setImgResults(results.sort(() => Math.random() - 0.5));
     setImgLoading(false);
   };
 
-  const searchArtImages = async () => {
-    if (!imgQuery.trim()) {
-      setImgResults(ABSTRACT_SOURCES);
-      return;
-    }
-    setImgLoading(true);
+  const searchMetImages = async (append = false) => {
+    if (!imgQuery.trim()) return;
+    setMetLoading(true);
     try {
-      const url = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(imgQuery + " painting art")}&srnamespace=6&format=json&origin=*&srlimit=20`;
-      const res = await fetch(url);
-      const data = await res.json();
-      const titles = (data.query?.search || []).map((r) => r.title);
-      if (!titles.length) {
-        setImgResults(ABSTRACT_SOURCES.filter((s) => s.alt.toLowerCase().includes(imgQuery.toLowerCase())));
-        setImgLoading(false);
-        return;
-      }
-      const infoUrl = `https://en.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(titles.slice(0, 10).join("|"))}&prop=imageinfo&iiprop=url|thumburl|extmetadata&iiurlwidth=400&format=json&origin=*`;
-      const infoRes = await fetch(infoUrl);
-      const infoData = await infoRes.json();
-      const pages = Object.values(infoData.query?.pages || {});
-      const mapped = pages
-        .filter((p) => p.imageinfo?.[0]?.thumburl)
-        .map((p) => ({
-          thumb: p.imageinfo[0].thumburl,
-          full: p.imageinfo[0].url,
-          alt: p.title?.replace("File:", "").replace(/\.[^.]+$/, "") || imgQuery,
-          attribution: p.imageinfo[0].extmetadata?.Artist?.value?.replace(/<[^>]*>/g, "") || "Wikimedia Commons",
+      const currentResults = append ? metResults : [];
+      const offset = append ? currentResults.length : 0;
+      const searchUrl = `https://collectionapi.metmuseum.org/public/collection/v1/search?q=${encodeURIComponent(imgQuery)}&hasImages=true`;
+      const searchRes = await fetch(searchUrl);
+      const searchData = await searchRes.json();
+      const objectIDs = (searchData.objectIDs || []).slice(offset, offset + 20);
+      if (!objectIDs.length) { if (!append) setMetResults([]); setMetLoading(false); return; }
+
+      const details = await Promise.all(
+        objectIDs.map(id =>
+          fetch(`https://collectionapi.metmuseum.org/public/collection/v1/objects/${id}`).then(r => r.json())
+        )
+      );
+      const newResults = details
+        .filter(d => d.primaryImageSmall)
+        .map(d => ({
+          thumb: d.primaryImageSmall,
+          full: d.primaryImage,
+          alt: d.title || imgQuery,
+          attribution: d.artistDisplayName || "Metropolitan Museum of Art",
         }));
-      setImgResults(mapped.length ? mapped : ABSTRACT_SOURCES);
+      setMetResults(append ? [...currentResults, ...newResults] : newResults);
+      if (!newResults.length && !append) setMetResults([]);
     } catch {
-      setImgResults(ABSTRACT_SOURCES);
+      if (!append) setMetResults([]);
     }
-    setImgLoading(false);
+    setMetLoading(false);
+  };
+
+  const searchNasaImages = async (append = false) => {
+    if (!imgQuery.trim()) return;
+    setNasaLoading(true);
+    try {
+      const currentResults = append ? nasaResults : [];
+      const page = append ? Math.floor(currentResults.length / 30) + 1 : 1;
+      const q = encodeURIComponent(imgQuery);
+      const res = await fetch(`https://images-api.nasa.gov/search?q=${q}&media_type=image&page=${page}`);
+      const data = await res.json();
+      const items = data.collection?.items || [];
+      const newResults = items.map(item => {
+        const d = item.data?.[0] || {};
+        const links = item.links || [];
+        const thumb = links.find(l => l.rel === "preview")?.href || "";
+        const full = links.find(l => l.rel === "preview")?.href?.replace("~thumb", "~orig") || thumb;
+        return {
+          thumb,
+          full,
+          alt: d.title || imgQuery,
+          attribution: d.center || "NASA",
+        };
+      }).filter(r => r.thumb);
+      setNasaResults(append ? [...currentResults, ...newResults] : newResults);
+    } catch {
+      if (!append) setNasaResults([]);
+    }
+    setNasaLoading(false);
   };
 
   const handleSearch = () => {
-    if (imgTab === "Photos") searchImages();
-    else searchArtImages();
+    if (imgTab === "Museum") searchMetImages();
+    else if (imgTab === "Space") searchNasaImages();
+    else searchImages();
   };
 
   const handleTabSwitch = (tab) => {
     setImgTab(tab);
     setImgResults([]);
-    if (tab === "Art") setImgResults(ABSTRACT_SOURCES);
+    setMetResults([]);
+    setNasaResults([]);
+    setImgQuery("");
   };
 
-  const addImageCard = (src, alt, attribution) => {
+  const addImageCard = (src, alt, attribution, size = 260) => {
+    const isSticker = attribution === 'Sticker';
+    const w = isSticker ? size : 260;
+    const h = isSticker ? size : 200;
+    const pos = findEmptySpot(w, h);
     addCard({
       id: uid(), type: "image",
-      x: 60 + Math.random() * 120, y: 60 + Math.random() * 120,
-      w: 260, h: 200, z: zRef.current++,
+      x: pos.x, y: pos.y,
+      w, h, z: zRef.current++,
       content: { src, alt, attribution },
     });
     showToast("Image added");
   };
 
   const addTextCard = () => {
+    const pos = findEmptySpot(240, 160);
     addCard({
       id: uid(), type: "text",
-      x: 80 + Math.random() * 120, y: 80 + Math.random() * 120,
-      w: 240, h: 140, z: zRef.current++,
-      content: { text: "", author: "" },
+      x: pos.x, y: pos.y,
+      w: 240, h: 160, z: zRef.current++,
+      content: { text: "", author: "", textColor: "#2a2018" },
     });
   };
 
   const addPaletteCard = (colours, name) => {
+    const pos = findEmptySpot(240, 110);
     addCard({
       id: uid(), type: "palette",
-      x: 80 + Math.random() * 120, y: 80 + Math.random() * 120,
+      x: pos.x, y: pos.y,
       w: 240, h: 110, z: zRef.current++,
       content: { colours, name },
     });
@@ -444,10 +590,11 @@ export default function StudioPage() {
 
   const addShapeCard = (type = "void") => {
     const seed = Math.floor(Math.random() * 32);
+    const pos = findEmptySpot(320, 320);
     addCard({
       id: uid(), type: "shape",
-      x: 80 + Math.random() * 120, y: 80 + Math.random() * 120,
-      w: 220, h: 220, z: zRef.current++,
+      x: pos.x, y: pos.y,
+      w: 320, h: 320, z: zRef.current++,
       content: { shapeType: type, seed },
     });
   };
@@ -484,38 +631,27 @@ export default function StudioPage() {
             value={activeBoard?.name || ""}
             onChange={(e) => saveBoard({ ...activeBoard, name: e.target.value })}
           />
-          <div className="studio-layout-btns">
-            {LAYOUTS.map((l) => (
-              <button
-                key={l.id}
-                className={`studio-layout-btn ${layout === l.id ? "active" : ""}`}
-                onClick={() => {
-                  setLayout(l.id);
-                  saveBoard({ ...activeBoard, layout: l.id });
-                }}
-              >
-                {l.icon}
-              </button>
-            ))}
-          </div>
         </div>
 
         <div className="studio-toolbar-right">
-          <Link
-            to="/generator"
+          <button
             className="studio-dropdown-btn"
-            style={{ textDecoration: "none" }}
+            onClick={() => {
+              if (!boardSavedRef.current) {
+                setSaveBoardName('');
+                setSaveBoardModal(true);
+              } else {
+                updateBoard({ ...activeBoard, updated_at: new Date().toISOString() });
+                showToast('Board saved');
+              }
+            }}
+            style={{ color: 'var(--rg)', borderColor: 'var(--rg)' }}
           >
-            GENERATOR
-          </Link>
-          <div style={{ position: "relative" }}>
-            <button
-              className="studio-dropdown-btn"
-              onClick={() => { setIsLoggedIn(false); navigate("/"); }}
-            >
-              LOG OUT
-            </button>
-          </div>
+            SAVE
+          </button>
+          <button className="studio-dropdown-btn" onClick={downloadAsJpeg}>
+            DOWNLOAD
+          </button>
 
           <div style={{ position: "relative" }}>
             <button
@@ -591,8 +727,10 @@ export default function StudioPage() {
 
       {/* ── Canvas ── */}
       <div
+        ref={canvasRef}
         className={isAbs ? "studio-canvas-wrapper" : gridStyleClass}
         style={isAbs ? { background: currentStyle.bg } : { minHeight: "100%", background: currentStyle.bg }}
+        onClick={(e) => { if (e.target === e.currentTarget || e.target.classList.contains('studio-canvas-wrapper')) setSelectedCardId(null); }}
       >
         {activeBoard.cards.length === 0 && (
           <div className="studio-canvas-empty">
@@ -615,6 +753,9 @@ export default function StudioPage() {
               onUpdate={saveBoard}
               onDelete={deleteCard}
               zRef={zRef}
+              theme={currentStyle}
+              isSelected={selectedCardId === card.id}
+              onSelect={() => setSelectedCardId(card.id)}
             />
           );
         })}
@@ -634,8 +775,6 @@ export default function StudioPage() {
                   <div className="studio-add-grid">
                     {[
                       ["T", "Text/Quote", addTextCard],
-                      ["◎", "Palette", () => addPaletteCard(ALL_PALETTES["Dark Romantic"], "Dark Romantic")],
-                      ["◫", "Shape", () => addShapeCard()],
                       ["↑", "Upload", () => document.getElementById("upload-input")?.click()],
                     ].map(([icon, lbl, fn]) => (
                       <button key={lbl} className="studio-add-btn" onClick={fn}>
@@ -650,40 +789,88 @@ export default function StudioPage() {
                 {id === "images" && (
                   <div>
                     <div className="studio-img-tabs">
-                      {IMG_TABS.map((tab) => (
+                      {imgTabs.map((tab) => (
                         <button key={tab} className={`studio-img-tab ${imgTab === tab ? "active" : ""}`} onClick={() => handleTabSwitch(tab)}>
                           {tab}
                         </button>
                       ))}
                     </div>
-                    <div className="studio-img-search-row">
-                      <input className="studio-img-input" value={imgQuery} onChange={(e) => setImgQuery(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleSearch()} placeholder={imgTab === "Photos" ? "Search photos..." : "Search art..."} />
-                      <button className="studio-img-search-btn" onClick={handleSearch}>&#9658;</button>
-                    </div>
-                    {imgLoading && <div className="studio-img-loading">Searching...</div>}
-                    <div className="studio-img-grid">
-                      {imgResults.map((r, i) => (
-                        <div key={i} className="studio-img-card" onClick={() => addImageCard(r.full, r.alt, r.attribution)}>
-                          <img src={r.thumb} alt={r.alt} loading="lazy" />
+                    {imgTab !== "Stickers" && (
+                      <div className="studio-img-search-row">
+                        <input className="studio-img-input" value={imgQuery} onChange={(e) => setImgQuery(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleSearch()} placeholder={`Search ${imgTab.toLowerCase()}...`} />
+                        <button className="studio-img-search-btn" onClick={handleSearch}>&#9658;</button>
+                      </div>
+                    )}
+                    {imgTab !== "Stickers" && (imgLoading || metLoading || nasaLoading) && <div className="studio-img-loading">Searching...</div>}
+                    {imgTab !== "Stickers" && (
+                      <div className="studio-img-results">
+                        <div className="studio-img-grid">
+                        {(imgTab === "Museum" ? metResults : imgTab === "Space" ? nasaResults : imgResults).map((r, i) => (
+                          <div key={i} className="studio-img-card" onClick={() => addImageCard(r.full, r.alt, r.attribution)} style={{ background: '#f0e8d8' }}>
+                            <img src={r.thumb} alt={r.alt} loading="lazy" style={{ objectFit: 'cover' }}
+                              onError={(e) => {
+                                if (e.target.src !== r.full) { e.target.src = r.full; } else { e.target.style.display = 'none'; }
+                              }}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                      {((imgTab === "Photos" && imgResults.length > 0) || (imgTab === "Museum" && metResults.length > 0) || (imgTab === "Space" && nasaResults.length > 0)) && (
+                        <button className="studio-img-load-more" onClick={() => { if (imgTab === "Museum") searchMetImages(true); else if (imgTab === "Space") searchNasaImages(true); else searchImages(true); }} disabled={imgLoading || metLoading || nasaLoading}>
+                          {imgLoading || metLoading || nasaLoading ? "Loading..." : "Load more"}
+                        </button>
+                      )}
+                      </div>
+                    )}
+                    {imgTab === "Stickers" && (
+                      <div>
+                        <div className="studio-shape-subtitle">STICKER PACKS</div>
+                        <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap', marginBottom: '0.6rem', maxHeight: '80px', overflowY: 'auto' }}>
+                          {Object.keys(STICKER_PACKS).map((packKey) => {
+                            const info = STICKER_LABELS[packKey] || { label: packKey, color: '#d4af37' };
+                            return (
+                              <button
+                                key={packKey}
+                                onClick={() => setActiveStickerPack(packKey)}
+                                style={{
+                                  padding: '3px 8px', borderRadius: '10px', cursor: 'pointer',
+                                  fontFamily: 'var(--font-mono)', fontSize: '0.38rem', letterSpacing: '0.06em', textTransform: 'uppercase',
+                                  background: activeStickerPack === packKey ? `${info.color}22` : 'transparent',
+                                  border: activeStickerPack === packKey ? `1px solid ${info.color}45` : '1px solid rgba(0,0,0,0.08)',
+                                  color: activeStickerPack === packKey ? info.color : 'rgba(0,0,0,0.35)',
+                                  transition: 'all 0.12s',
+                                }}
+                              >
+                                {info.label}
+                              </button>
+                            );
+                          })}
                         </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {id === "genre" && (
-                  <div className="studio-genre-list">
-                    {Object.entries(GENRE_STYLES).map(([name, style]) => (
-                      <button
-                        key={name}
-                        className={`studio-genre-item ${selectedGenre === name ? "active" : ""}`}
-                        onClick={() => setSelectedGenre(selectedGenre === name ? null : name)}
-                        style={{ borderLeftColor: selectedGenre === name ? style.text : "transparent" }}
-                      >
-                        <span className="studio-genre-name">{name}</span>
-                        <span className="studio-genre-dot" style={{ background: style.text }} />
-                      </button>
-                    ))}
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '6px' }}>
+                          {(STICKER_PACKS[activeStickerPack] || []).map((stickerPath, i) => (
+                            <div
+                              key={i}
+                              onClick={() => addImageCard(stickerPath, stickerPath.split('/').pop()?.replace(/\.[^.]+$/, '') || 'sticker', 'Sticker', 80)}
+                              style={{
+                                aspectRatio: '1', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                background: 'transparent', border: 'none', padding: '4px',
+                              }}
+                            >
+                              <img
+                                src={stickerPath}
+                                alt="sticker"
+                                loading="lazy"
+                                style={{
+                                  maxWidth: '100%', maxHeight: '100%', objectFit: 'contain',
+                                  filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.15)) drop-shadow(0 0 1px rgba(0,0,0,0.08))',
+                                  transform: `rotate(${(Math.random() * 6 - 3).toFixed(1)}deg)`,
+                                }}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -693,8 +880,11 @@ export default function StudioPage() {
                       className="studio-fp-btn"
                       onClick={() => {
                         const fp = fingerprint;
-                        if (fp && FP_PALETTES[fp.type]) addPaletteCard(FP_PALETTES[fp.type], fp.type + " palette");
-                        else showToast("Take The Mirror quiz first");
+                        if (fp && FP_PALETTES[fp.type]) {
+                          const name = fp.type + " palette";
+                          setActivePalette({ colours: FP_PALETTES[fp.type], name });
+                          addPaletteCard(FP_PALETTES[fp.type], name);
+                        } else showToast("Take The Mirror quiz first");
                       }}
                     >
                       <span>FINGERPRINT PALETTE</span><span>+</span>
@@ -702,7 +892,7 @@ export default function StudioPage() {
                     <input className="studio-palette-input" value={paletteSearch} onChange={(e) => setPaletteSearch(e.target.value)} placeholder="Filter palettes..." />
                     <div className="studio-palette-list">
                       {filteredPalettes.map(([name, colours]) => (
-                        <button key={name} className="studio-palette-item" onClick={() => addPaletteCard(colours, name)}>
+                        <button key={name} className="studio-palette-item" onClick={() => { setActivePalette({ colours, name }); addPaletteCard(colours, name); }}>
                           <div className="studio-palette-swatches">
                             {colours.slice(0, 5).map((c, i) => (
                               <div key={i} className="studio-palette-swatch" style={{ background: c }} />
@@ -715,61 +905,40 @@ export default function StudioPage() {
                   </div>
                 )}
 
-                {id === "shapes" && (
-                  <div>
-                    <div className="studio-shape-subtitle">ADD NEW SHAPE</div>
-                    <div className="studio-shape-grid">
-                      {SHAPE_TYPES.map((t) => (
-                        <button key={t} className="studio-shape-btn" onClick={() => addShapeCard(t)}>
-                          {t}
-                        </button>
-                      ))}
-                    </div>
-                    {savedShapes.length > 0 && (
-                      <>
-                        <div className="studio-shape-subtitle" style={{ marginBottom: "0.4rem" }}>FROM QUIZ</div>
-                        <div className="studio-saved-shapes-grid">
-                          {savedShapes.slice(0, 9).map((s) => (
-                            <div
-                              key={s.id}
-                              className="studio-saved-shape"
-                              onClick={() =>
-                                addCard({
-                                  id: uid(), type: "shape",
-                                  x: 80 + Math.random() * 120, y: 80 + Math.random() * 120,
-                                  w: 220, h: 220, z: zRef.current++,
-                                  content: { shapeType: s.type, seed: s.seed },
-                                })
-                              }
-                            >
-                              <ShapeCanvas type={s.type} seed={s.seed} width={60} height={60} />
-                            </div>
-                          ))}
-                        </div>
-                      </>
-                    )}
-                  </div>
+                {id === "art" && (
+                  <ArtPanel currentStyle={currentStyle} addCard={addCard} zRef={zRef} findEmptySpot={findEmptySpot} />
                 )}
 
-                {id === "stickers" && (
+                {id === "emoticons" && (
                   <div>
-                    <div className="studio-shape-subtitle">BUILT-IN STICKERS</div>
-                    <div className="studio-sticker-grid">
-                      {["✦", "☽", "♢", "◆", "◈", "✧", "♁", "⬡", "▿"].map((glyph, i) => (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '5px', marginBottom: '0.7rem' }}>
+                      {EMOTICONS.map((emoji, i) => (
                         <div
                           key={i}
-                          className="studio-sticker"
-                          style={{ fontSize: "1.6rem", color: currentStyle.text, userSelect: "none" }}
-                          onClick={() =>
+                          style={{
+                            padding: '0.5rem 0.3rem', cursor: 'pointer', border: '1px solid rgba(0,0,0,0.08)',
+                            textAlign: 'center', fontSize: '0.82rem', fontWeight: 500,
+                            color: '#2a2018', background: '#ffffff',
+                            userSelect: 'none', transition: 'border-color 0.2s, background 0.2s',
+                            overflow: 'hidden', whiteSpace: 'nowrap',
+                            fontFamily: 'var(--font-mono), monospace',
+                            lineHeight: 1.2,
+                          }}
+                          onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--rg)'}
+                          onMouseLeave={e => e.currentTarget.style.borderColor = 'rgba(0,0,0,0.08)'}
+                          title={emoji.name}
+                          onClick={() => {
+                            const pos = findEmptySpot(60, 40);
                             addCard({
-                              id: uid(), type: "text",
-                              x: 80 + Math.random() * 120, y: 80 + Math.random() * 120,
-                              w: 120, h: 120, z: zRef.current++,
-                              content: { text: glyph, author: "" },
-                            })
-                          }
+                              id: uid(), type: "sticker",
+                              x: pos.x, y: pos.y,
+                              w: 60, h: 40, z: zRef.current++,
+                              initW: 60, initH: 40,
+                              content: { char: emoji.char, fontSize: '0.85rem', letterSpacing: '0' },
+                            });
+                          }}
                         >
-                          {glyph}
+                          {emoji.char}
                         </div>
                       ))}
                     </div>
@@ -828,31 +997,220 @@ export default function StudioPage() {
         </div>
       </Modal>
 
+      <Modal isOpen={saveBoardModal} title="Save Board" onClose={() => setSaveBoardModal(false)}>
+        <div className="studio-modal-body">
+          <label className="studio-modal-label">BOARD NAME</label>
+          <input
+            autoFocus
+            className="studio-modal-input"
+            value={saveBoardName}
+            onChange={(e) => setSaveBoardName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && saveBoardName.trim()) {
+                const existing = boards.find(b => b.id === activeBoardId);
+                if (existing) {
+                  updateBoard({ ...activeBoard, name: saveBoardName.trim() });
+                } else {
+                  addBoard({ ...activeBoard, name: saveBoardName.trim() });
+                }
+                setSaveBoardModal(false);
+                showToast('Board saved');
+              }
+            }}
+            placeholder="Name your board..."
+          />
+        </div>
+        <div className="studio-modal-footer">
+          <button className="studio-modal-cancel" onClick={() => setSaveBoardModal(false)}>CANCEL</button>
+          <button
+            className="studio-modal-confirm"
+            onClick={() => {
+              if (!saveBoardName.trim()) return;
+              const existing = boards.find(b => b.id === activeBoardId);
+              if (existing) {
+                updateBoard({ ...activeBoard, name: saveBoardName.trim() });
+              } else {
+                addBoard({ ...activeBoard, name: saveBoardName.trim() });
+              }
+              setSaveBoardModal(false);
+              showToast('Board saved');
+            }}
+          >
+            SAVE
+          </button>
+        </div>
+      </Modal>
+
       {/* ── Toast ── */}
       <div className={`studio-toast ${toastVisible ? "" : "hidden"}`}>{toast}</div>
     </div>
   );
 }
 
+/* ─── Art Panel ──────────────────────────────────────────────────────── */
+const ART_TABS = ["Ornamental", "Borders", "Shapes", "Arrows"];
+
+const ART_GLYPHS = {
+  Ornamental: [
+    { char: '✿', name: 'bloom' }, { char: '⚘', name: 'flower' }, { char: '❦', name: 'heart floral' },
+    { char: '☙', name: 'reversed heart' }, { char: '♡', name: 'outline heart' }, { char: '❧', name: 'rotated heart' },
+    { char: '⚬', name: 'small circle' }, { char: '◉', name: 'fisheye' }, { char: '◎', name: 'bullseye' },
+    { char: '⬤', name: 'black circle' }, { char: '◐', name: 'half circle' }, { char: '◌', name: 'dotted circle' },
+    { char: '✦', name: 'four-point star' }, { char: '✧', name: 'white star' }, { char: '★', name: 'black star' },
+    { char: '☀', name: 'sun rays' }, { char: '☁', name: 'cloud' }, { char: '☂', name: 'umbrella' },
+    { char: '☽', name: 'crescent moon' }, { char: '☾', name: 'moon' }, { char: '⚛', name: 'atom' },
+    { char: '⬡', name: 'hexagon' }, { char: '⬢', name: 'hexagon black' }, { char: '◆', name: 'diamond' },
+    { char: '◇', name: 'hollow diamond' }, { char: '◈', name: 'diamond inset' }, { char: '⬥', name: 'small diamond' },
+    { char: '♫', name: 'beamed notes' }, { char: '♪', name: 'eighth note' }, { char: '♬', name: 'sixteenth notes' },
+    { char: '♁', name: 'earth' }, { char: '☿', name: 'mercury' }, { char: '⚸', name: 'black moon' },
+    { char: '⛧', name: 'pentagram' }, { char: '꩜', name: 'spiral' }, { char: '☯', name: 'yin yang' },
+    { char: '⚔', name: 'crossed swords' }, { char: '♞', name: 'knight' }, { char: '♛', name: 'queen' },
+    { char: '⚜', name: 'fleur-de-lis' }, { char: '☘', name: 'shamrock' }, { char: '❀', name: 'florette' },
+    { char: '❁', name: 'outlined florette' }, { char: '❂', name: 'open centre star' }, { char: '❃', name: 'teardrop asterisk' },
+    { char: '✾', name: 'six-petal' }, { char: '⚕', name: 'caduceus' }, { char: '♆', name: 'neptune' },
+    { char: '▽', name: 'triangle down' }, { char: '△', name: 'triangle' }, { char: '□', name: 'square' },
+    { char: '○', name: 'circle' }, { char: '⬠', name: 'pentagon' }, { char: '⬟', name: 'pentagon black' },
+  ],
+  Borders: [
+    { char: '═══', name: 'double rule' }, { char: '───', name: 'rule' },
+    { char: '╌╌╌', name: 'dotted rule' }, { char: '┄┄┄', name: 'dashed rule' },
+    { char: '▁▁▁', name: 'lower block' }, { char: '▔▔▔', name: 'upper block' },
+    { char: '▀▀▀', name: 'upper half' }, { char: '──', name: 'thin rule' },
+    { char: '━', name: 'heavy rule' }, { char: '╍╍╍', name: 'heavy dotted' },
+    { char: '┅┅┅', name: 'heavy dashed' }, { char: '⁘', name: 'four dots' },
+  ],
+  Shapes: [
+    { char: '▚', name: 'quadrant' }, { char: '▞', name: 'quadrant rev' }, { char: '▙', name: 'quadrant bl' },
+    { char: '▛', name: 'quadrant tr' }, { char: '▜', name: 'quadrant tl' }, { char: '▟', name: 'quadrant br' },
+    { char: '▖', name: 'lower right' }, { char: '▗', name: 'lower left' }, { char: '▘', name: 'upper left' },
+    { char: '▝', name: 'upper right' }, { char: '▀', name: 'upper half block' }, { char: '▄', name: 'lower half block' },
+    { char: '█', name: 'full block' }, { char: '░', name: 'light shade' }, { char: '▒', name: 'medium shade' },
+    { char: '▓', name: 'dark shade' }, { char: '▢', name: 'white square' }, { char: '■', name: 'black square' },
+    { char: '▥', name: 'crosshatch' }, { char: '▦', name: 'crosshatch filled' }, { char: '▧', name: 'shade light' },
+    { char: '▨', name: 'shade medium' }, { char: '▩', name: 'shade dark' }, { char: '◧', name: 'half circle' },
+    { char: '◨', name: 'half circle rev' }, { char: '◩', name: 'quarter circle' }, { char: '◪', name: 'quarter rev' },
+  ],
+  Arrows: [
+    { char: '→', name: 'right' }, { char: '←', name: 'left' }, { char: '↑', name: 'up' }, { char: '↓', name: 'down' },
+    { char: '⇢', name: 'right dashed' }, { char: '⇠', name: 'left dashed' }, { char: '↗', name: 'up-right' },
+    { char: '↘', name: 'down-right' }, { char: '↙', name: 'down-left' }, { char: '↖', name: 'up-left' },
+    { char: '⟶', name: 'long right' }, { char: '⟵', name: 'long left' }, { char: '⇀', name: 'right harpoon' },
+    { char: '⇁', name: 'right harpoon down' }, { char: '↺', name: 'circle arrow' }, { char: '↻', name: 'circle arrow rev' },
+    { char: '⇝', name: 'right squiggle' }, { char: '↭', name: 'wave arrow' }, { char: '↯', name: 'zigzag' },
+    { char: '⬈', name: 'ne arrow' }, { char: '⬋', name: 'sw arrow' }, { char: '⬀', name: 'nw arrow' },
+    { char: '⬂', name: 'se arrow' }, { char: '⇄', name: 'right-left' }, { char: '⇅', name: 'up-down' },
+    { char: '⇆', name: 'left-right' }, { char: '⇇', name: 'left paired' },
+  ],
+};
+
+const TEXT_COLORS = [
+  { name: 'Ink', hex: '#2a2018' },
+  { name: 'Rust', hex: '#c4522a' },
+  { name: 'Night', hex: '#1a2838' },
+  { name: 'Moss', hex: '#3a5030' },
+  { name: 'Berry', hex: '#5a2040' },
+  { name: 'Gold', hex: '#8a6a18' },
+  { name: 'Teal', hex: '#1a4a4a' },
+  { name: 'Plum', hex: '#3a2a4a' },
+];
+
+const EMOTICONS = [
+  { char: '(◕‿◕)', name: 'happy' }, { char: '(◡ ω ◡)', name: 'content' }, { char: '(•‿•)', name: 'smile' },
+  { char: '(✿◠‿◠)', name: 'bloom smile' }, { char: '(｡◕‿◕｡)', name: 'sparkle' }, { char: '(◍•ᴗ•◍)', name: 'warm' },
+  { char: '(ᵔ◡ᵔ)', name: 'gentle' }, { char: '(⌒‿⌒)', name: 'beam' }, { char: '(◕ᴗ◕✿)', name: 'floral' },
+  { char: '(♡˙︶˙♡)', name: 'love' }, { char: '(｡♥‿♥｡)', name: 'heart eyes' }, { char: '(♥ω♥)', name: 'in love' },
+  { char: '(♡°▽°♡)', name: 'head over heels' }, { char: '(⁀ᗢ⁀)', name: 'fae' }, { char: '(✿ヘᴥヘ)', name: 'bear' },
+  { char: '(╥﹏╥)', name: 'cry' }, { char: '(｡•́︿•̀｡)', name: 'teary' }, { char: '(个_个)', name: 'sob' },
+  { char: '(╥_╥)', name: 'bawling' }, { char: '(´;︵;`)', name: 'weep' }, { char: '(T_T)', name: 'frown' },
+  { char: '(╬ Ò﹏Ó)', name: 'furious' }, { char: '(｀Д´)', name: 'rage' }, { char: '(ノಠ益ಠ)ノ', name: 'fuming' },
+  { char: '(≖_≖)', name: 'unimpressed' }, { char: '(ಠ_ಠ)', name: 'disapproval' }, { char: '(¬_¬")', name: 'skeptical' },
+  { char: '(⊙_⊙)', name: 'shock' }, { char: 'Σ(°△°|||)', name: 'panic' }, { char: 'w(°ｏ°)w', name: 'amazed' },
+  { char: '(⁄ ⁄>⁄▽⁄<⁄ ⁄)', name: 'shy' }, { char: '(*/ω＼*)', name: 'blush' }, { char: '(⌒_⌒;)', name: 'awkward' },
+  { char: 'm(_ _)m', name: 'bow' }, { char: '(シ_ _)シ', name: 'apology' }, { char: '(_ _;)', name: 'sweat' },
+  { char: '(╯°□°）╯︵ ┻━┻', name: 'table flip' }, { char: '(ﾉ≧∇≦)ﾉ ﾐ ┻━┻', name: 'flip table cheer' },
+  { char: '¯\\_(ツ)_/¯', name: 'shrug' }, { char: 'ヽ(ー_ー)ノ', name: 'whatever' }, { char: '╮(╯_╰)╭', name: 'meh' },
+  { char: '(￣ω￣)', name: 'smirk' }, { char: '(≧▽≦)', name: 'excited' }, { char: '٩(◕‿◕｡)۶', name: 'cheer' },
+  { char: 'ヽ(・∀・)ﾉ', name: 'wave' }, { char: '\\(^ヮ^)/', name: 'rejoice' }, { char: '乁( • ω •乁)', name: 'giddy' },
+  { char: '(￣▽￣)ノ', name: 'peace' }, { char: 'v(￣∇￣)', name: 'v sign' }, { char: '(-_-)zzz', name: 'sleep' },
+  { char: '(─‿‿─)', name: 'groove' }, { char: 'ヽ(〃･ω･)ﾉ', name: 'skippy' }, { char: '(¬‿¬)', name: 'mischief' },
+];
+
+function ArtPanel({ currentStyle, addCard, zRef, findEmptySpot }) {
+  const [artTab, setArtTab] = useState("Ornamental");
+  const fontSize = artTab === "Borders" ? "0.85rem" : artTab === "Arrows" ? "1.2rem" : artTab === "Shapes" ? "1.35rem" : "1.5rem";
+  const isBorder = artTab === "Borders";
+  const glyphs = ART_GLYPHS[artTab] || [];
+
+  return (
+    <div>
+      <div className="studio-img-tabs">
+        {ART_TABS.map((tab) => (
+          <button key={tab} className={`studio-img-tab ${artTab === tab ? "active" : ""}`} onClick={() => setArtTab(tab)}>
+            {tab}
+          </button>
+        ))}
+      </div>
+      <div className="studio-sticker-grid">
+        {glyphs.map((glyph, i) => (
+          <div
+            key={i}
+            className="studio-sticker"
+            style={{ fontSize, color: currentStyle.text, userSelect: "none", letterSpacing: isBorder ? '0.03em' : '0' }}
+            title={glyph.name}
+            onClick={() => {
+              const pos = findEmptySpot(36, 36);
+              addCard({
+                id: uid(), type: "sticker",
+                x: pos.x, y: pos.y,
+                w: 36, h: 36, z: zRef.current++,
+                initW: 36, initH: 36,
+                content: { char: glyph.char, fontSize, letterSpacing: isBorder ? '0.03em' : '0' },
+              });
+            }}
+          >
+            {glyph.char}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /* ─── Card View ─────────────────────────────────────────────────────── */
-function CardView({ card, isAbs, gridSpan, board, onUpdate, onDelete, zRef }) {
+function CardView({ card, isAbs, gridSpan, board, onUpdate, onDelete, zRef, theme, isSelected, onSelect }) {
+  const cardBg = theme?.bg || '#f5f0e8';
+  const cardText = theme?.text || '#2a2018';
+  const isSticker = card.type === "sticker";
+  const isImageSticker = card.type === "image" && card.content?.attribution === 'Sticker';
+  const isDieCut = isSticker || isImageSticker;
+  const isText = card.type === "text";
+
   const startDrag = (e) => {
     if (!isAbs) return;
     const target = e.target;
-    if (target.tagName === "TEXTAREA" || target.tagName === "INPUT" || target.closest(".studio-card-controls") || target.closest(".studio-card-resize")) return;
+    if (isText && (target.tagName === "TEXTAREA" || target.tagName === "INPUT")) return;
+    if (target.closest(".studio-card-controls") || target.closest(".studio-card-resize")) return;
     e.preventDefault();
     const startX = e.clientX - card.x;
     const startY = e.clientY - card.y;
     const el = e.currentTarget;
     const newZ = ++zRef.current;
     el.style.zIndex = String(newZ);
+
+    // Clamp so cards can't slide under the sidebar / above the toolbar.
+    const parent = el.parentElement;
+    const maxX = () => Math.max(0, (parent?.clientWidth  || 0) - el.offsetWidth);
+    const maxY = () => Math.max(0, (parent?.clientHeight || 0) - el.offsetHeight);
+
     const onMove = (ev) => {
-      el.style.left = Math.max(0, ev.clientX - startX) + "px";
-      el.style.top = Math.max(0, ev.clientY - startY) + "px";
+      const nx = Math.min(maxX(), Math.max(0, ev.clientX - startX));
+      const ny = Math.min(maxY(), Math.max(0, ev.clientY - startY));
+      el.style.left = nx + "px";
+      el.style.top  = ny + "px";
     };
     const onUp = (ev) => {
-      const nx = Math.max(0, ev.clientX - startX);
-      const ny = Math.max(0, ev.clientY - startY);
+      const nx = Math.min(maxX(), Math.max(0, ev.clientX - startX));
+      const ny = Math.min(maxY(), Math.max(0, ev.clientY - startY));
       onUpdate({ ...board, cards: board.cards.map((c) => (c.id === card.id ? { ...c, x: nx, y: ny, z: newZ } : c)) });
       document.removeEventListener("mousemove", onMove);
       document.removeEventListener("mouseup", onUp);
@@ -869,15 +1227,22 @@ function CardView({ card, isAbs, gridSpan, board, onUpdate, onDelete, zRef }) {
       sw = card.w,
       sh = card.h;
     const el = e.currentTarget.closest(".studio-card");
+
+    // Same clamp logic: width capped so the right edge of the card never
+    // crosses into the sidebar.
+    const parent = el?.parentElement;
+    const maxW = () => Math.max(40, (parent?.clientWidth  || 0) - (el?.offsetLeft || 0));
+    const maxH = () => Math.max(40, (parent?.clientHeight || 0) - (el?.offsetTop  || 0));
+
     const onMove = (ev) => {
-      const nw = Math.max(120, sw + ev.clientX - startX);
-      const nh = Math.max(80, sh + ev.clientY - startY);
+      const nw = Math.min(maxW(), Math.max(40, sw + ev.clientX - startX));
+      const nh = Math.min(maxH(), Math.max(40, sh + ev.clientY - startY));
       el.style.width = nw + "px";
       el.style.height = nh + "px";
     };
     const onUp = (ev) => {
-      const nw = Math.max(120, sw + ev.clientX - startX);
-      const nh = Math.max(80, sh + ev.clientY - startY);
+      const nw = Math.min(maxW(), Math.max(40, sw + ev.clientX - startX));
+      const nh = Math.min(maxH(), Math.max(40, sh + ev.clientY - startY));
       onUpdate({ ...board, cards: board.cards.map((c) => (c.id === card.id ? { ...c, w: nw, h: nh } : c)) });
       document.removeEventListener("mousemove", onMove);
       document.removeEventListener("mouseup", onUp);
@@ -887,56 +1252,173 @@ function CardView({ card, isAbs, gridSpan, board, onUpdate, onDelete, zRef }) {
   };
 
   const style = isAbs
-    ? { position: "absolute", left: card.x, top: card.y, width: card.w, height: card.h, zIndex: card.z }
+    ? {
+        position: "absolute",
+        left: card.x, top: card.y,
+        width: card.w, height: card.h,
+        zIndex: card.z,
+        transform: card.rotation ? `rotate(${card.rotation}deg)` : undefined,
+        transformOrigin: 'center center',
+      }
     : { position: "relative", ...gridSpan };
 
+  // Rotation handle, lives next to the delete control.
+  //   • Click  → rotate by +90° (4 clicks returns to original).
+  //   • Drag   → free-rotate around the card centre (hold Shift to snap 15°).
+  const startRotate = (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const el = e.currentTarget.closest('.studio-card');
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    const startAngle = Math.atan2(e.clientY - cy, e.clientX - cx) * 180 / Math.PI;
+    const startRot = card.rotation || 0;
+    const downX = e.clientX, downY = e.clientY;
+    let dragged = false;
+    let latestRot = startRot;
+
+    const onMove = (ev) => {
+      // Dead-zone so a click does not register as a 0px drag.
+      if (!dragged && Math.hypot(ev.clientX - downX, ev.clientY - downY) < 4) return;
+      dragged = true;
+      const cur = Math.atan2(ev.clientY - cy, ev.clientX - cx) * 180 / Math.PI;
+      let next = startRot + (cur - startAngle);
+      if (ev.shiftKey) next = Math.round(next / 15) * 15;
+      next = ((next % 360) + 360) % 360;
+      latestRot = next;
+      el.style.transform = `rotate(${next}deg)`;
+    };
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      // Click (no drag) → +90° quarter turn. Drag → commit the dragged angle.
+      const next = dragged ? latestRot : (((startRot + 90) % 360) + 360) % 360;
+      el.style.transform = `rotate(${next}deg)`;
+      onUpdate({
+        ...board,
+        cards: board.cards.map((c) =>
+          c.id === card.id ? { ...c, rotation: next } : c),
+      });
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  };
+
   return (
-    <div className="studio-card" style={style} onMouseDown={startDrag}>
-      <div className="studio-card-controls">
-        <button className="studio-card-delete" onClick={() => onDelete(card.id)}>&#10005;</button>
-      </div>
+    <div
+      className={isDieCut ? 'studio-card studio-card--sticker' : 'studio-card'}
+      style={{ ...style, background: isDieCut ? 'transparent' : theme ? cardBg : undefined }}
+      onMouseDown={(e) => { onSelect(); startDrag(e); }}
+    >
+      {isSelected && (
+        <div className="studio-card-controls" style={{ opacity: 1 }}>
+          <button
+            className="studio-card-rotate"
+            onMouseDown={startRotate}
+            title="Drag to rotate (hold Shift to snap)"
+            style={{
+              background: 'rgba(255,255,255,0.9)',
+              border: '1px solid rgba(0,0,0,0.15)',
+              borderRadius: '50%',
+              width: 20, height: 20,
+              fontSize: 11, lineHeight: 1,
+              cursor: 'grab',
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              marginRight: 4,
+              color: '#2a2018',
+              userSelect: 'none',
+            }}
+          >↻</button>
+          <button className="studio-card-delete" onClick={() => onDelete(card.id)}>&#10005;</button>
+        </div>
+      )}
 
-      {card.type === "image" && <img className="studio-card-image" src={card.content.src} alt={card.content.alt} />}
+      {isImageSticker && (
+        <img className="studio-card-sticker-image" src={card.content.src} alt={card.content.alt} crossOrigin="anonymous"
+          style={{ width: '100%', height: '100%', objectFit: 'contain', pointerEvents: 'auto' }} />
+      )}
 
-      {card.type === "text" && (
+      {isSticker && (
+        <div style={{
+          width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          color: cardText,
+          letterSpacing: card.content.letterSpacing || '0',
+          pointerEvents: 'none', lineHeight: 1,
+          overflow: 'hidden',
+        }}>
+          {/* Only the visible glyph catches clicks. The surrounding flex box
+              stays pointer-events: none so it does not block neighbouring
+              stickers placed in its blank corners. */}
+          <span style={{
+            pointerEvents: 'auto',
+            display: 'inline-block',
+            fontSize: (card.content.fontSize || '1.5rem').replace(/(\d+\.?\d*)/, (m) => {
+              const scale = card.initW ? Math.min(card.w / card.initW, card.h / card.initH) : 1;
+              return (parseFloat(m) * scale).toFixed(1);
+            }),
+            lineHeight: 1,
+          }}>
+            {card.content.char}
+          </span>
+        </div>
+      )}
+
+      {card.type === "image" && !isImageSticker && <img className="studio-card-image" src={card.content.src} alt={card.content.alt} crossOrigin="anonymous" />}
+
+      {isText && (
         <div className="studio-card-text-wrap">
-          <div className="studio-card-text-handle">
-            <div className="studio-card-text-handle-bar" />
+          <div className="studio-card-text-handle"><div className="studio-card-text-handle-bar" />
+            {isSelected && (
+              <div style={{ position: 'absolute', right: 30, top: 2, display: 'flex', gap: 4 }}>
+                {TEXT_COLORS.map(tc => (
+                  <button
+                    key={tc.hex}
+                    title={tc.name}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onUpdate({ ...board, cards: board.cards.map((c) => (c.id === card.id ? { ...c, content: { ...c.content, textColor: tc.hex } } : c)) });
+                    }}
+                    style={{
+                      width: 12, height: 12, border: card.content.textColor === tc.hex ? '2px solid ' + tc.hex : '1px solid rgba(0,0,0,0.15)',
+                      borderRadius: '50%', background: tc.hex, cursor: 'pointer', padding: 0,
+                    }}
+                  />
+                ))}
+              </div>
+            )}
           </div>
-          <textarea
-            className="studio-card-textarea"
-            defaultValue={card.content.text}
+          <textarea className="studio-card-textarea" defaultValue={card.content.text}
+            style={{ color: card.content.textColor || cardText }}
             onChange={(e) => {
               onUpdate({ ...board, cards: board.cards.map((c) => (c.id === card.id ? { ...c, content: { ...c.content, text: e.target.value } } : c)) });
             }}
-            placeholder="Write something..."
-            onMouseDown={(e) => e.stopPropagation()}
-            onClick={(e) => e.stopPropagation()}
-          />
+            placeholder="Write something..." />
         </div>
       )}
 
       {card.type === "palette" && (
-        <div className="studio-card-palette">
+        <div className="studio-card-palette" style={{ background: cardBg }}>
           <div className="studio-card-palette-strip">
-            {card.content.colours.map((c, i) => (
-              <div key={i} className="studio-card-palette-strip-color" style={{ background: c }} />
-            ))}
+            {card.content.colours.map((c, i) => (<div key={i} className="studio-card-palette-strip-color" style={{ background: c }} />))}
           </div>
-          <div className="studio-card-palette-info">
-            <span className="studio-card-palette-name">{card.content.name}</span>
+          <div className="studio-card-palette-info" style={{ background: cardBg }}>
+            <span className="studio-card-palette-name" style={{ color: cardText }}>{card.content.name}</span>
             {card.content.colours.map((c, i) => (
-              <span key={i} className="studio-card-palette-hex" onClick={() => navigator.clipboard?.writeText(c)}>
-                {c}
-              </span>
+              <span key={i} className="studio-card-palette-hex" style={{ color: cardText, borderColor: cardText + '22' }} onClick={() => navigator.clipboard?.writeText(c)}>{c}</span>
             ))}
           </div>
         </div>
       )}
 
-      {card.type === "shape" && <ShapeCanvas type={card.content.shapeType} seed={card.content.seed} width={card.w} height={card.h} />}
+      {card.type === "shape" && (
+        <div style={{ width: '100%', height: '100%', background: cardBg }}>
+          <ShapeCanvas type={card.content.shapeType} seed={card.content.seed} width={card.w} height={card.h} />
+        </div>
+      )}
 
-      {isAbs && (
+      {isAbs && isSelected && (
         <div className="studio-card-resize" onMouseDown={startResize}>
           <div className="studio-card-resize-line" />
         </div>
