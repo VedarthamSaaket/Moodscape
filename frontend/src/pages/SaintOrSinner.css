@@ -1,0 +1,420 @@
+/* SaintOrSinner.css
+   ─────────────────────────────────────────────────────────────────────────
+   Scoped styles for the Saint or Sinner game. Inherits all design tokens from
+   App.css and reuses the .quiz-shell / .quiz-btn-* / .quiz-intro-* / .quiz-
+   progress-* classes from QuizPage.css. Only the game-specific pieces — the
+   trait list, verdict slider, guess options and the you-vs-world spectrum —
+   live here. Same cardIn / --ease language as the rest of the app.
+*/
+
+/* ── INTRO extra ──────────────────────────────────────────────────────────── */
+.sns-best {
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  margin: 0;
+}
+.sns-best span {
+  color: var(--rg);
+}
+
+/* ── ROUND ────────────────────────────────────────────────────────────────── */
+.sns-round {
+  animation: cardIn 0.55s var(--ease, cubic-bezier(0.16, 1, 0.3, 1)) both;
+}
+
+.sns-prompt {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 500;
+  font-size: clamp(2rem, 4.8vw, 3.4rem);
+  line-height: 1.05;
+  letter-spacing: -0.005em;
+  color: var(--parch);
+  margin: 0 0 0.5rem;
+}
+
+.sns-caption {
+  font-family: var(--font-body);
+  color: var(--text-3);
+  font-size: 0.95rem;
+  margin: 0 0 2rem;
+}
+
+/* ── TRAITS ───────────────────────────────────────────────────────────────── */
+.sns-traits {
+  list-style: none;
+  margin: 0 0 2.4rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.sns-trait {
+  position: relative;
+  padding-left: 1.6rem;
+  font-family: var(--font-body);
+  font-size: 1.08rem;
+  line-height: 1.5;
+  color: var(--text-2, #c8d3da);
+  animation: cardIn 0.5s var(--ease, cubic-bezier(0.16, 1, 0.3, 1)) both;
+  animation-delay: calc(var(--i, 0) * 80ms + 80ms);
+}
+
+.sns-trait::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.7em;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: linear-gradient(120deg, var(--rg) 0%, var(--mist) 100%);
+}
+
+/* Compact variant reused on the guess step so the traits stay visible. */
+.sns-traits-compact {
+  gap: 0.5rem;
+  margin-bottom: 2rem;
+  opacity: 0.78;
+}
+.sns-traits-compact .sns-trait {
+  font-size: 0.95rem;
+  animation: none;
+}
+
+/* ── VERDICT SLIDER ───────────────────────────────────────────────────────── */
+.sns-slider-block {
+  margin: 0 0 2.5rem;
+}
+
+.sns-slider-ends {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.sns-end {
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.sns-verdict-live {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 1.6rem;
+  font-weight: 500;
+  transition: color 0.2s ease;
+}
+
+.sns-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(90deg,
+      rgba(207, 107, 107, 0.55) 0%,
+      rgba(201, 194, 166, 0.42) 50%,
+      rgba(159, 216, 180, 0.60) 100%);
+  outline: none;
+  cursor: pointer;
+}
+
+.sns-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--accent, #9ab8cc);
+  border: 2px solid rgba(8, 11, 22, 0.9);
+  box-shadow: 0 0 0 4px rgba(220, 232, 240, 0.08), 0 4px 16px rgba(0, 0, 0, 0.45);
+  transition: transform 0.18s var(--ease, ease-out);
+}
+.sns-slider::-webkit-slider-thumb:hover { transform: scale(1.12); }
+.sns-slider:active::-webkit-slider-thumb { transform: scale(1.18); }
+
+.sns-slider::-moz-range-thumb {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--accent, #9ab8cc);
+  border: 2px solid rgba(8, 11, 22, 0.9);
+  box-shadow: 0 0 0 4px rgba(220, 232, 240, 0.08), 0 4px 16px rgba(0, 0, 0, 0.45);
+}
+
+.sns-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-top: 0.5rem;
+}
+
+/* ── GUESS OPTIONS ────────────────────────────────────────────────────────── */
+.sns-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.sns-option {
+  text-align: left;
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 1.45rem;
+  font-weight: 500;
+  color: var(--parch);
+  background: rgba(8, 11, 22, 0.55);
+  border: 1px solid rgba(220, 232, 240, 0.08);
+  border-radius: 14px;
+  padding: 1.1rem 1.4rem;
+  cursor: pointer;
+  transition: transform 0.3s var(--ease, ease-out),
+              border-color 0.25s ease, background 0.25s ease;
+  animation: cardIn 0.5s var(--ease, cubic-bezier(0.16, 1, 0.3, 1)) both;
+  animation-delay: calc(var(--i, 0) * 80ms + 80ms);
+}
+
+.sns-option:hover {
+  transform: translateX(4px);
+  border-color: var(--rg);
+  background: rgba(154, 184, 204, 0.06);
+}
+
+/* ── REVEAL ───────────────────────────────────────────────────────────────── */
+.sns-reveal {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1rem;
+  animation: cardIn 0.6s var(--ease, cubic-bezier(0.16, 1, 0.3, 1)) both;
+}
+
+.sns-reveal-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.sns-reveal-name {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 500;
+  font-size: clamp(2.6rem, 7vw, 4.6rem);
+  line-height: 0.98;
+  letter-spacing: -0.015em;
+  color: var(--parch);
+  margin: 0;
+}
+
+.sns-chip {
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--chip, var(--rg));
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 0.5rem 0.9rem;
+  opacity: 0.92;
+}
+
+.sns-gap-line {
+  font-family: var(--font-body);
+  font-size: 1rem;
+  color: var(--text-2, #c8d3da);
+  margin: 0.2rem 0 0;
+}
+
+.sns-guess-line {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  margin: 0;
+}
+.sns-guess-line[data-right='yes'] { color: #9fd8b4; }
+.sns-guess-line[data-right='no']  { color: #cf8a8a; }
+
+.sns-reveal-blurb {
+  font-family: var(--font-body);
+  font-size: 1.05rem;
+  line-height: 1.55;
+  color: var(--text-2, #9aaab6);
+  max-width: 54ch;
+  margin: 0.4rem 0 0.6rem;
+}
+
+/* ── YOU vs WORLD SPECTRUM ────────────────────────────────────────────────── */
+.sns-spectrum {
+  width: 100%;
+  margin: 0.4rem 0 0.4rem;
+}
+
+.sns-spectrum-track {
+  position: relative;
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(90deg,
+      rgba(207, 107, 107, 0.6) 0%,
+      rgba(201, 194, 166, 0.42) 50%,
+      rgba(159, 216, 180, 0.65) 100%);
+  margin: 2.6rem 0 0.8rem;
+}
+
+.sns-marker {
+  position: absolute;
+  top: 50%;
+}
+
+.sns-marker-dot {
+  display: block;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+}
+.sns-marker-you .sns-marker-dot {
+  background: var(--parch);
+  box-shadow: 0 0 0 4px rgba(220, 232, 240, 0.12);
+}
+.sns-marker-world .sns-marker-dot {
+  background: var(--world, #9ab8cc);
+  box-shadow: 0 0 0 4px rgba(8, 11, 22, 0.6);
+}
+
+.sns-marker-label {
+  position: absolute;
+  left: 0;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 0.56rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+.sns-marker-you .sns-marker-label {
+  bottom: 16px;
+  color: var(--parch);
+}
+.sns-marker-world .sns-marker-label {
+  top: 16px;
+  color: var(--world, var(--rg));
+}
+
+.sns-spectrum-ends {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+/* ── SUMMARY ──────────────────────────────────────────────────────────────── */
+.sns-summary-title {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 500;
+  font-size: clamp(2.4rem, 6vw, 4rem);
+  line-height: 1;
+  letter-spacing: -0.01em;
+  color: var(--parch);
+  margin: 0;
+}
+
+.sns-scoreboard {
+  display: flex;
+  gap: 1rem;
+  width: 100%;
+  margin: 1rem 0 0.4rem;
+}
+
+.sns-score {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  background: rgba(8, 11, 22, 0.6);
+  border: 1px solid rgba(220, 232, 240, 0.08);
+  border-radius: 12px;
+  padding: 1.2rem 1.4rem;
+}
+
+.sns-score-num {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 2.4rem;
+  font-weight: 500;
+  background: linear-gradient(110deg, var(--rg) 0%, var(--mist) 100%);
+  -webkit-background-clip: text;
+          background-clip: text;
+  color: transparent;
+}
+
+.sns-score-label {
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.sns-recap {
+  list-style: none;
+  width: 100%;
+  margin: 1.2rem 0 0.6rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.sns-recap-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.7rem 0;
+  border-bottom: 1px solid rgba(220, 232, 240, 0.06);
+}
+
+.sns-recap-name {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 1.15rem;
+  color: var(--parch);
+}
+
+.sns-recap-nums {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.7rem;
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.sns-recap-gap[data-close='yes'] { color: #9fd8b4; }
+.sns-recap-gap[data-close='no']  { color: #d99a5a; }
+
+.sns-recap-guess[data-right='yes'] { color: #9fd8b4; }
+.sns-recap-guess[data-right='no']  { color: #cf8a8a; }
+
+/* ── MOBILE ───────────────────────────────────────────────────────────────── */
+@media (max-width: 720px) {
+  .sns-scoreboard { flex-direction: column; }
+  .sns-trait { font-size: 1rem; }
+}

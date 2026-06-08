@@ -2,14 +2,17 @@
    Cream-dominant palette with blue accents (steel, mist, violet) */
 
 /* ── Layout ──
-   Sits below the global Moodscape tab bar (.generator-header, ~72px tall).
-   Using a fixed top offset instead of `inset: 0` lets the navbar stay visible. */
+   Covers the full viewport with a cream background so the dither bg behind
+   the generator layout never bleeds through. Padding-top reserves room for
+   the fixed global Moodscape tab bar (.generator-header). */
 .studio-layout {
   position: fixed;
-  top: 72px;
+  top: 0;
   right: 0;
   bottom: 0;
   left: 0;
+  padding-top: 72px;
+  box-sizing: border-box;
   display: grid;
   grid-template-columns: 1fr 320px;
   grid-template-rows: auto 1fr;
@@ -18,7 +21,7 @@
 }
 
 @media (max-width: 720px) {
-  .studio-layout { top: 64px; }
+  .studio-layout { padding-top: 64px; }
 }
 
 .studio-toolbar {

@@ -1,7 +1,6 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { API_BASE } from '../config';
 import useQuizStore from '../store/quizStore';
-import Dither from '../assets/Dither';
 import "./GeneratorPage.css"
 
 const LANGUAGES = [
@@ -493,20 +492,6 @@ export default function GeneratorPage() {
 
   return (
     <>
-      {}
-      <div className="gen-beams-bg">
-        <Dither
-          waveColor={[0.18, 0.36, 0.52]}
-          waveSpeed={0.04}
-          waveFrequency={3}
-          waveAmplitude={0.3}
-          colorNum={5}
-          pixelSize={2}
-          disableAnimation={false}
-          enableMouseInteraction={false}
-        />
-      </div>
-
       <div className="gen-card">
 
         {}

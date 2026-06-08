@@ -5,7 +5,6 @@ import { QUESTIONS, ARCHETYPES } from './quiz/quizData.js';
 import { score } from './quiz/scoreQuiz.js';
 import VibeMeter from './quiz/VibeMeter.jsx';
 import useQuizImages from './quiz/useQuizImages.js';
-import Dither from '../assets/Dither';
 import './QuizPage.css';
 
 // Phases: intro → question(0..N-1) → result
@@ -113,19 +112,6 @@ function QuizPage() {
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <>
-      <div className="gen-beams-bg">
-        <Dither
-          waveColor={[0.18, 0.36, 0.52]}
-          waveSpeed={0.04}
-          waveFrequency={3}
-          waveAmplitude={0.3}
-          colorNum={5}
-          pixelSize={2}
-          disableAnimation={false}
-          enableMouseInteraction={false}
-        />
-      </div>
-
       <div className={`quiz-shell ${fading ? 'fading' : ''}`}>
         {phase === 'intro' && <Intro onStart={handleStart} hasPrior={!!completedAt} onResume={() => setPhase('result')} />}
 

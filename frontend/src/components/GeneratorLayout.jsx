@@ -3,6 +3,7 @@ import { Outlet, useNavigate, NavLink } from 'react-router-dom';
 import { AuthContext } from '../AuthContext';
 import useStudioStore from '../store';
 import useQuizStore from '../store/quizStore';
+import Dither from '../assets/Dither';
 import './../App.css';
 
 function GeneratorLayout() {
@@ -31,6 +32,18 @@ function GeneratorLayout() {
 
   return (
     <div className="generator-layout-container">
+      <div className="gen-beams-bg">
+        <Dither
+          waveColor={[0.18, 0.36, 0.52]}
+          waveSpeed={0.04}
+          waveFrequency={3}
+          waveAmplitude={0.3}
+          colorNum={5}
+          pixelSize={2}
+          disableAnimation={false}
+          enableMouseInteraction={false}
+        />
+      </div>
       <header className="generator-header">
         <div className="top-brand-corner">M&amp;M</div>
         <nav className="gen-tab-bar">

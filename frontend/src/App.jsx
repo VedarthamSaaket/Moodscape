@@ -9,7 +9,9 @@ import SignUpPage from './pages/SignUpPage';
 import VerifyEmailPage from './pages/VerifyEmailPage';
 import GeneratorPage from './pages/GeneratorPage';
 import StudioPage from './pages/StudioPage';
+import QuizLayout from './components/QuizLayout';
 import QuizPage from './pages/QuizPage';
+import SaintOrSinnerPage from './pages/SaintOrSinnerPage';
 import CallbackPage from './pages/CallbackPage';
 import { AuthProvider } from './AuthContext';
 
@@ -33,7 +35,10 @@ function App() {
               <Route index element={<StudioPage />} />
             </Route>
             <Route path="/quiz" element={<GeneratorLayout />}>
-              <Route index element={<QuizPage />} />
+              <Route element={<QuizLayout />}>
+                <Route index element={<QuizPage />} />
+                <Route path="saint-or-sinner" element={<SaintOrSinnerPage />} />
+              </Route>
             </Route>
           </Route>
         </Routes>
