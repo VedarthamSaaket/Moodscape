@@ -1,10 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import useQuizStore from '../store/quizStore.js';
+import usePlayerStore from '../store/playerStore.js';
+import useSavedStore from '../store/savedStore.js';
 import { QUESTIONS, ARCHETYPES } from './quiz/quizData.js';
 import { score } from './quiz/scoreQuiz.js';
 import VibeMeter from './quiz/VibeMeter.jsx';
 import useQuizImages from './quiz/useQuizImages.js';
+import { API_BASE } from '../config';
 import './QuizPage.css';
 
 // Phases: intro → question(0..N-1) → result
@@ -22,12 +25,17 @@ function QuizPage() {
     runnerUp,
     scores,
     completedAt,
+    personalSeed,
     recordAnswer,
     finalize,
     reset,
     setPendingStyleSeed,
+    setPersonalSeed,
+    setPinnedTracks,
+    setQuizStyle,
   } = useQuizStore();
 
+  // Phases: intro → question(0..N-1) → seed → result.
   // If the user has a completed quiz on file, drop straight into the result.
   const [phase, setPhase] = useState(() => (completedAt ? 'result' : 'intro'));
   const [qIdx, setQIdx] = useState(0);
@@ -41,7 +49,7 @@ function QuizPage() {
     return currentQ.options.find((o) => o.id === rec.optionId) || null;
   }, [answers, currentQ]);
 
-  // Transition helper — short cross-fade matching the rest of the app.
+  // Transition helper, short cross-fade matching the rest of the app.
   const advance = (next) => {
     setFading(true);
     setTimeout(() => {
@@ -67,7 +75,7 @@ function QuizPage() {
         archetype: result.archetype,
         runnerUp:  result.runnerUp,
       });
-      advance(() => setPhase('result'));
+      advance(() => setPhase('seed'));
     } else {
       advance(() => setQIdx((i) => i + 1));
     }
@@ -95,12 +103,14 @@ function QuizPage() {
 
   const handleUseStyle = () => {
     if (!archetype) return;
-    setPendingStyleSeed({
+    const style = {
       archetype:  archetype.id,
       name:       archetype.name,
       vibePrompt: archetype.vibePrompt,
       genres:     archetype.genreSeed,
-    });
+    };
+    setPendingStyleSeed(style);  // one-shot form prefill
+    setQuizStyle(style);         // persistent, survives the Spotify redirect
     navigate('/generator');
   };
 
@@ -108,6 +118,12 @@ function QuizPage() {
   useEffect(() => {
     if (phase === 'intro' && completedAt) setPhase('result');
   }, [completedAt, phase]);
+
+  // When a new question (or phase) appears, jump back to the top so the prompt
+  // is in view — otherwise you stay scrolled down from the previous options.
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [qIdx, phase]);
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
@@ -127,13 +143,23 @@ function QuizPage() {
           />
         )}
 
+        {phase === 'seed' && (
+          <SeedView
+            initial={personalSeed}
+            onSubmit={(text) => { setPersonalSeed(text); advance(() => setPhase('result')); }}
+            onSkip={() => { setPersonalSeed(''); advance(() => setPhase('result')); }}
+          />
+        )}
+
         {phase === 'result' && archetype && (
           <ResultView
             archetype={archetype}
             runnerUp={runnerUp}
             scores={scores}
+            personalSeed={personalSeed}
             onRetake={handleRetake}
             onUseStyle={handleUseStyle}
+            onPin={setPinnedTracks}
           />
         )}
 
@@ -170,6 +196,40 @@ function Intro({ onStart, hasPrior, onResume }) {
             See your last result
           </button>
         )}
+      </div>
+    </div>
+  );
+}
+
+function SeedView({ initial, onSubmit, onSkip }) {
+  const [text, setText] = useState(initial || '');
+  return (
+    <div className="quiz-intro quiz-seed-step">
+      <div className="quiz-intro-eyebrow">One more thing</div>
+      <h1 className="quiz-intro-title">
+        Name a song or artist<br />you can’t stop returning to.
+      </h1>
+      <p className="quiz-intro-body">
+        Optional, but it lets us hand you songs that sound like <em>you</em>,
+        not just your aesthetic.
+      </p>
+      <input
+        className="quiz-seed-input"
+        type="text"
+        placeholder="e.g. Phoebe Bridgers, or “Night Changes”…"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Enter') onSubmit(text.trim()); }}
+        maxLength={120}
+        autoFocus
+      />
+      <div className="quiz-intro-actions">
+        <button className="quiz-btn-primary" onClick={() => onSubmit(text.trim())}>
+          Reveal my vibe
+        </button>
+        <button className="quiz-btn-ghost" onClick={onSkip}>
+          Skip
+        </button>
       </div>
     </div>
   );
@@ -247,7 +307,7 @@ function QuestionView({ question, index, total, selectedId, onPick, onBack, imag
   );
 }
 
-function ResultView({ archetype, runnerUp, scores, onRetake, onUseStyle }) {
+function ResultView({ archetype, runnerUp, scores, personalSeed, onRetake, onUseStyle, onPin }) {
   const accent = archetype.accent;
   const gradient = `linear-gradient(110deg, ${accent.from} 0%, ${accent.to} 100%)`;
   const textGradient = {
@@ -255,6 +315,72 @@ function ResultView({ archetype, runnerUp, scores, onRetake, onUseStyle }) {
     WebkitBackgroundClip: 'text',
     backgroundClip: 'text',
     color: 'transparent',
+  };
+
+  const playList = usePlayerStore((s) => s.playList);
+  const saved      = useSavedStore((s) => s.saved);
+  const toggleSave = useSavedStore((s) => s.toggleSave);
+  const savedSet = useMemo(
+    () => new Set(saved.map((t) => t.spotifyUrl || `${t.title}·${t.artist}`)),
+    [saved]
+  );
+
+  const [suggestions, setSuggestions] = useState([]);
+  const [loadingSugg, setLoadingSugg] = useState(true);
+  const [suggError, setSuggError]     = useState(false);
+  const [selected, setSelected]       = useState(() => new Set()); // by spotifyUrl
+
+  // Fetch 2-3 song suggestions shaped by the archetype + the user's seed.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoadingSugg(true);
+      setSuggError(false);
+      try {
+        const appToken = localStorage.getItem('authToken') || '';
+        const res = await fetch(`${API_BASE}/api/quiz/suggestions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Session-Token': appToken },
+          body: JSON.stringify({
+            archetypeId:   archetype.id,
+            archetypeName: archetype.name,
+            vibePrompt:    archetype.vibePrompt,
+            genreSeed:     archetype.genreSeed,
+            languageSeed:  archetype.languageSeed,
+            personalSeed:  personalSeed || null,
+            count:         10,
+          }),
+        });
+        if (!res.ok) throw new Error('bad');
+        const data = await res.json();
+        if (cancelled) return;
+        const tracks = Array.isArray(data.tracks) ? data.tracks : [];
+        setSuggestions(tracks);
+        // Opt-in: nothing selected by default, the user cherry-picks which
+        // songs ride into their next playlist.
+        setSelected(new Set());
+      } catch {
+        if (!cancelled) setSuggError(true);
+      } finally {
+        if (!cancelled) setLoadingSugg(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [archetype, personalSeed]);
+
+  const toggleSelect = (url) => {
+    if (!url) return;
+    setSelected((prev) => {
+      const n = new Set(prev);
+      if (n.has(url)) n.delete(url); else n.add(url);
+      return n;
+    });
+  };
+
+  const handleBuild = () => {
+    const picks = suggestions.filter((t) => t.spotifyUrl && selected.has(t.spotifyUrl));
+    onPin(picks);   // stage pinned songs for the next playlist (may be empty)
+    onUseStyle();   // applies the archetype style seed + routes to the generator
   };
 
   return (
@@ -285,9 +411,78 @@ function ResultView({ archetype, runnerUp, scores, onRetake, onUseStyle }) {
         </div>
       </div>
 
+      {/* ── Song suggestions ─────────────────────────────────────────────── */}
+      <div className="quiz-suggest">
+        <div className="quiz-suggest-head">
+          <span className="quiz-seed-label">Songs picked for you</span>
+          {personalSeed && (
+            <span className="quiz-suggest-sub">shaped by your taste + “{personalSeed}”</span>
+          )}
+        </div>
+
+        {loadingSugg && (
+          <div className="quiz-suggest-loading"><span className="quiz-spin-ring" /> finding songs…</div>
+        )}
+
+        {suggError && !loadingSugg && (
+          <div className="quiz-suggest-error">
+            Couldn’t load song picks right now, you can still use your style below.
+          </div>
+        )}
+
+        {!loadingSugg && !suggError && suggestions.length > 0 && (
+          <>
+            <ul className="quiz-suggest-list">
+              {suggestions.map((t, i) => {
+                const isSel = t.spotifyUrl && selected.has(t.spotifyUrl);
+                const isSaved = savedSet.has(t.spotifyUrl || `${t.title}·${t.artist}`);
+                return (
+                  <li className="quiz-song-card" key={`${t.spotifyUrl || t.title}-${i}`}>
+                    <button
+                      className="quiz-song-play"
+                      onClick={() => playList(suggestions, i)}
+                      title="Play (and queue the rest)"
+                      aria-label={`Play ${t.title}`}
+                    >▶</button>
+                    {t.albumArt
+                      ? <img className="quiz-song-art" src={t.albumArt} alt="" />
+                      : <span className="quiz-song-art quiz-song-art--empty">♪</span>}
+                    <span className="quiz-song-info">
+                      <span className="quiz-song-title" title={t.title}>{t.title}</span>
+                      <span className="quiz-song-artist" title={t.artist}>{t.artist}</span>
+                    </span>
+                    <button
+                      className={`quiz-song-save ${isSaved ? 'is-on' : ''}`}
+                      onClick={() => toggleSave(t)}
+                      title={isSaved ? 'Saved — tap to remove' : 'Save for later'}
+                      aria-label={isSaved ? 'Remove from saved' : 'Save song'}
+                    >
+                      {isSaved ? '♥' : '♡'}
+                    </button>
+                    <button
+                      className={`quiz-song-pick ${isSel ? 'is-on' : ''}`}
+                      onClick={() => toggleSelect(t.spotifyUrl)}
+                      disabled={!t.spotifyUrl}
+                      title={isSel ? 'Will be added to your next playlist' : 'Add to your next playlist'}
+                    >
+                      {isSel ? '✓ added' : '+ add'}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+            <p className="quiz-suggest-hint">
+              ▶ plays in-app (queues the rest) · ♥ saves to your Saved tab · ✓ rides into your next playlist
+            </p>
+          </>
+        )}
+      </div>
+
       <div className="quiz-result-actions">
-        <button className="quiz-btn-primary" onClick={onUseStyle}>
-          Use my style in the next playlist
+        <button className="quiz-btn-primary" onClick={handleBuild}>
+          {selected.size > 0
+            ? `Use ${selected.size} song${selected.size > 1 ? 's' : ''} in my next playlist →`
+            : 'Use my style in the next playlist →'}
         </button>
         <button className="quiz-btn-ghost" onClick={onRetake}>
           Retake

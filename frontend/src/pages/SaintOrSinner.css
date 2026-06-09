@@ -2,8 +2,8 @@
    ─────────────────────────────────────────────────────────────────────────
    Scoped styles for the Saint or Sinner game. Inherits all design tokens from
    App.css and reuses the .quiz-shell / .quiz-btn-* / .quiz-intro-* / .quiz-
-   progress-* classes from QuizPage.css. Only the game-specific pieces — the
-   trait list, verdict slider, guess options and the you-vs-world spectrum —
+   progress-* classes from QuizPage.css. Only the game-specific pieces, the
+   trait list, verdict slider, guess options and the you-vs-world spectrum ,
    live here. Same cardIn / --ease language as the rest of the app.
 */
 
@@ -18,6 +18,73 @@
 }
 .sns-best span {
   color: var(--rg);
+}
+
+/* ── VIBE GUESSER METER (persistent lifetime read of how well you read people) */
+.sns-vibe {
+  width: 100%;
+  max-width: 440px;
+  margin: 0.6rem 0 1.7rem;
+  padding: 0.9rem 1.1rem 1rem;
+  border-radius: 14px;
+  border: 1px solid rgba(120, 170, 210, 0.28);
+  background: linear-gradient(180deg, rgba(40, 80, 115, 0.18), rgba(8, 11, 22, 0.42));
+  animation: cardIn 0.5s var(--ease, cubic-bezier(0.16, 1, 0.3, 1)) both;
+}
+.sns-vibe--summary { max-width: 100%; margin: 1.3rem 0 0.4rem; }
+
+.sns-vibe-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.6rem;
+  margin-bottom: 0.6rem;
+}
+.sns-vibe-label {
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: rgba(202, 224, 244, 0.86);
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.5);
+}
+.sns-vibe-value {
+  font-family: var(--font-body);
+  font-size: 0.82rem;
+  color: rgba(214, 234, 250, 0.9);
+  white-space: nowrap;
+}
+.sns-vibe-value strong {
+  font-family: var(--font-display, Georgia, serif);
+  font-style: italic;
+  font-weight: 500;
+  font-size: 1.18rem;
+  background: linear-gradient(110deg, #9ab8cc 0%, #d2e2f0 100%);
+  -webkit-background-clip: text;
+          background-clip: text;
+  color: transparent;
+  margin-right: 0.2rem;
+}
+.sns-vibe-track {
+  position: relative;
+  height: 7px;
+  border-radius: 999px;
+  background: rgba(8, 11, 22, 0.55);
+  overflow: hidden;
+}
+.sns-vibe-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(95, 158, 200, 0.85) 0%, rgba(150, 195, 235, 0.96) 100%);
+  box-shadow: 0 0 12px rgba(120, 180, 230, 0.5);
+  transition: width 0.9s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.sns-vibe-sub {
+  margin: 0.55rem 0 0;
+  font-family: var(--font-body);
+  font-size: 0.74rem;
+  color: rgba(182, 210, 232, 0.68);
+  text-shadow: 0 1px 5px rgba(0, 0, 0, 0.45);
 }
 
 /* ── ROUND ────────────────────────────────────────────────────────────────── */

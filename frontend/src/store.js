@@ -20,7 +20,7 @@ const initialBoards = [makeBoard()];
 
 // ── Sync helpers ────────────────────────────────────────────────────────────
 // Backend persistence is "best effort, last-write-wins". The local Zustand
-// store remains the source of truth for the UI — backend pushes happen async
+// store remains the source of truth for the UI, backend pushes happen async
 // in the background. If the user is logged out (no token), we silently skip.
 
 const authHeaders = () => {
@@ -127,7 +127,7 @@ const useStudioStore = create(
           const data = await res.json();
           const merged = Array.isArray(data.boards) ? data.boards : [];
           if (merged.length === 0) {
-            // Server has nothing yet AND we sent nothing — keep the local placeholder.
+            // Server has nothing yet AND we sent nothing, keep the local placeholder.
             set({ hydratedFromServer: true });
             return;
           }

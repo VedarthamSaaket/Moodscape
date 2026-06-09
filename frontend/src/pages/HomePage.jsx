@@ -187,7 +187,7 @@ export default function HomePage() {
     return () => window.removeEventListener('scroll', fn);
   }, []);
 
-  // Bold / dominant ghost numbers — silver only, high opacity
+  // Bold / dominant ghost numbers, silver only, high opacity
   const GhostNum = ({ n, top, left, right, opacity = 0.15 }) => (
     <span style={{
       position: 'absolute', top, left, right,
@@ -331,7 +331,7 @@ export default function HomePage() {
 
         {/* ── MANIFESTO ── */}
         <section style={{ maxWidth: '1000px', margin: '0 auto', padding: '108px 52px 88px', position: 'relative' }}>
-          {/* Bold dominant watermark — "feel" in silver */}
+          {/* Bold dominant watermark, "feel" in silver */}
           <GhostNum n="feel" top="40px" right="-10px" opacity={0.14} />
           <Reveal>
             <div style={{ display: 'grid', gridTemplateColumns: '130px 1fr', gap: '52px', alignItems: 'start' }}>
@@ -445,7 +445,7 @@ export default function HomePage() {
             </div>
           </Reveal>
 
-          {/* Dominant lead feature — emotion-first */}
+          {/* Dominant lead feature, emotion-first */}
           <Reveal>
             <div className="feat-tile" style={{ padding: '42px 38px', background: '#02040b', border: '1px solid rgba(154,184,204,0.05)', marginBottom: '1px', position: 'relative', overflow: 'hidden' }}>
               <div style={{ position: 'absolute', top: 0, left: 0, width: '2px', height: '100%', background: 'linear-gradient(180deg, rgba(194,217,232,0.50), rgba(184,198,224,0.12))' }} />

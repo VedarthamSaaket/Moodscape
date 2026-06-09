@@ -11,7 +11,14 @@ HF_API_TOKEN          = os.getenv("HF_API_TOKEN")
 SPOTIFY_CLIENT_ID     = os.getenv("SPOTIFY_CLIENT_ID")
 SPOTIFY_CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET")
 SPOTIFY_REDIRECT_URI  = os.getenv("SPOTIFY_REDIRECT_URI")
+# Public base URL of the frontend, used to build password-reset links sent by
+# email. Defaults to the local dev origin.
+FRONTEND_URL          = os.getenv("FRONTEND_URL", "http://localhost:5173")
 SPOTIFY_SCOPES        = os.getenv("SPOTIFY_SCOPES")
+# Optional: used only by the in-app YouTube playback resolver
+# (/api/youtube/resolve). The app still boots without it — playback simply
+# falls back to "open on Spotify" until a key is provided.
+YOUTUBE_API_KEY       = os.getenv("YOUTUBE_API_KEY")
 GMAIL_USER            = os.getenv("GMAIL_USER")
 GMAIL_APP_PASSWORD    = os.getenv("GMAIL_APP_PASSWORD")
 

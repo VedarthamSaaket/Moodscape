@@ -69,6 +69,18 @@ const useQuizStore = create(
       completedAt: null,
       hydratedFromServer: false,
       pendingStyleSeed: null,
+      // Persistent style context applied to the generator. Unlike
+      // pendingStyleSeed (a one-shot form prefill consumed on mount), this
+      // survives navigation AND the full-page Spotify OAuth redirect, so the
+      // archetype keeps shaping playlist generation and the banner stays put.
+      quizStyle: null,
+
+      // Free-text "name an artist or song you love" captured at the end of the
+      // quiz. Used to personalise the post-quiz song suggestions.
+      personalSeed: '',
+      // Songs the user pinned from the result-screen suggestions, to be folded
+      // into the NEXT playlist they generate (regardless of generator menu).
+      pinnedTracks: [],
 
       // Save a single answer mid-quiz. If the user goes back and changes
       // their pick, overwrite the existing entry for that questionId.
@@ -104,9 +116,15 @@ const useQuizStore = create(
           archetype: null,
           runnerUp: null,
           completedAt: null,
+          personalSeed: '',
         });
         pushDelete();
       },
+
+      // Personalisation seed + pinned songs.
+      setPersonalSeed: (seed) => set({ personalSeed: (seed || '').slice(0, 120) }),
+      setPinnedTracks: (tracks) => set({ pinnedTracks: Array.isArray(tracks) ? tracks : [] }),
+      clearPinnedTracks: () => set({ pinnedTracks: [] }),
 
       // Pull the user's saved result on app load. Server is the source of
       // truth, local cache only acts as offline fallback. No-op if logged out.
@@ -148,6 +166,12 @@ const useQuizStore = create(
       // "Use my style in the next playlist", GeneratorPage reads then calls clearPendingStyleSeed.
       setPendingStyleSeed: (seed) => set({ pendingStyleSeed: seed }),
       clearPendingStyleSeed: () => set({ pendingStyleSeed: null }),
+
+      // Persistent style context (mirrors the seed), read by GeneratorPage on
+      // every mount so it survives the Spotify redirect. Cleared when the user
+      // starts fresh or after a playlist is generated.
+      setQuizStyle: (style) => set({ quizStyle: style }),
+      clearQuizStyle: () => set({ quizStyle: null }),
     }),
     { name: 'moodscape-quiz' }
   )

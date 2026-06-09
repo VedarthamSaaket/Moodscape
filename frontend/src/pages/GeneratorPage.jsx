@@ -1,6 +1,8 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { API_BASE } from '../config';
 import useQuizStore from '../store/quizStore';
+import usePlayerStore from '../store/playerStore';
+import Dither from '../assets/Dither';
 import "./GeneratorPage.css"
 
 const LANGUAGES = [
@@ -123,6 +125,31 @@ function svgToDataUrl(svgStr) {
   return 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgStr)));
 }
 
+// Spotify access tokens expire after ~1h. Trade the stored refresh_token for a
+// fresh access_token, persist it, and return it (or null if we can't refresh —
+// e.g. no refresh_token stored from an older session). Caller should then ask
+// the user to reconnect.
+async function refreshSpotifyToken() {
+  const refresh = localStorage.getItem('spotify_refresh_token');
+  if (!refresh) return null;
+  const sessionToken = localStorage.getItem('authToken') || '';
+  try {
+    const res = await fetch(`${API_BASE}/api/refresh/spotify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Session-Token': sessionToken },
+      body: JSON.stringify({ refresh_token: refresh }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!data.access_token) return null;
+    localStorage.setItem('spotify_token', data.access_token);
+    if (data.refresh_token) localStorage.setItem('spotify_refresh_token', data.refresh_token);
+    return data.access_token;
+  } catch {
+    return null;
+  }
+}
+
 function LanguagePillSelector({ label, options, selected, onChange }) {
   const toggle = (val) => {
     if (selected.includes(val)) {
@@ -209,7 +236,7 @@ function GenrePillSelector({ label, options, selected, onChange }) {
 }
 
 function SuggestButton({ track, token, playlistId, onAdded, moodText, selectedLanguages, selectedGenres }) {
-  const [state, setState] = useState('idle'); 
+  const [state, setState] = useState('idle');
 
   const handleClick = async () => {
     if (state !== 'idle' || !token) return;
@@ -231,7 +258,7 @@ function SuggestButton({ track, token, playlistId, onAdded, moodText, selectedLa
           playlist_intent: moodText || '',
           language: selectedLanguages?.[0] || null,
           genre: selectedGenres?.[0] || null,
-          ignored_uris: Array.from(window.ignoredTrackUris || new Set()) 
+          ignored_uris: Array.from(window.ignoredTrackUris || new Set())
         }),
       });
 
@@ -275,27 +302,27 @@ export default function GeneratorPage() {
   const [movieName, setMovieName] = useState('');
   const [coverSeed, setCoverSeed] = useState(() => Math.floor(Math.random() * COVER_PALETTES.length));
 
-  // ── Quiz handoff ─────────────────────────────────────────────────────────
-  // If the user just clicked "Use my style in the next playlist" on the Quiz
-  // result page, the quiz store holds a pendingStyleSeed. Apply it ONCE on
-  // mount, then clear it so navigating away + back doesn't re-apply.
-  // We also persist the archetype context (id, name, vibe prompt) so the
-  // backend can fold it into the playlist generation pipeline.
-  const pendingStyleSeed     = useQuizStore((s) => s.pendingStyleSeed);
-  const clearPendingStyleSeed = useQuizStore((s) => s.clearPendingStyleSeed);
-  const [styleBanner, setStyleBanner] = useState(null); // {name} | null
-  const [styleContext, setStyleContext] = useState(null); // {id, name, vibePrompt} | null
+  const quizStyle      = useQuizStore((s) => s.quizStyle);
+  const clearQuizStyle = useQuizStore((s) => s.clearQuizStyle);
+  const pinnedTracks      = useQuizStore((s) => s.pinnedTracks);
+  const clearPinnedTracks = useQuizStore((s) => s.clearPinnedTracks);
+  const playNow           = usePlayerStore((s) => s.playNow);
+  const [styleBanner, setStyleBanner] = useState(null);
+  const [styleContext, setStyleContext] = useState(null);
 
   useEffect(() => {
-    if (!pendingStyleSeed) return;
-    const seed = pendingStyleSeed;
+    if (!quizStyle) return;
+    const seed = quizStyle;
 
-    setMoodText(seed.vibePrompt || '');
+    setMoodText((cur) => cur || seed.vibePrompt || '');
 
     if (Array.isArray(seed.genres) && seed.genres.length) {
-      const validValues = new Set(GENRES.map((g) => g.value));
-      const matched = seed.genres.filter((g) => validValues.has(g));
-      if (matched.length) setGenres(matched);
+      setGenres((cur) => {
+        if (cur && cur.length) return cur;
+        const validValues = new Set(GENRES.map((g) => g.value));
+        const matched = seed.genres.filter((g) => validValues.has(g));
+        return matched.length ? matched : cur;
+      });
     }
 
     setStyleBanner({ name: seed.name || 'your style' });
@@ -304,8 +331,7 @@ export default function GeneratorPage() {
       name:       seed.name || null,
       vibePrompt: seed.vibePrompt || null,
     });
-    clearPendingStyleSeed();
-  }, [pendingStyleSeed, clearPendingStyleSeed]);
+  }, [quizStyle]);
 
   const handleClearStyleSeed = () => {
     setMoodText('');
@@ -313,6 +339,7 @@ export default function GeneratorPage() {
     setGenres([]);
     setStyleBanner(null);
     setStyleContext(null);
+    clearQuizStyle();
   };
 
   const [playlist, setPlaylist] = useState(null);
@@ -346,11 +373,6 @@ export default function GeneratorPage() {
     }
   };
 
-  const randomSeed = () => {
-    const pick = arr => arr[Math.floor(Math.random() * arr.length)];
-    return `${pick(['melancholic', 'euphoric', 'introspective', 'nostalgic', 'restless', 'dreamy', 'electric', 'raw', 'tender', 'bittersweet'])}, ${pick(['midnight', 'golden hour', 'late afternoon', 'early morning', 'dusk', 'rainy evening', 'sunday noon'])}, ${pick(['driving alone', 'staring out a window', 'a slow walk', 'sitting by water', 'a dimly lit room', 'an empty street'])}`;
-  };
-
   const handleGeneratePlaylist = async (e) => {
     e.preventDefault();
     setError(null);
@@ -378,28 +400,52 @@ export default function GeneratorPage() {
         styleArchetypeId:   styleContext?.id || null,
         styleArchetypeName: styleContext?.name || null,
         styleVibePrompt:    styleContext?.vibePrompt || null,
+        pinnedUris: (pinnedTracks || []).map((t) => t.uri).filter(Boolean),
       };
 
-      const response = await fetch(`${API_BASE}/api/create-playlist`, {
+      let activeToken = token;
+      const postCreate = (tok) => fetch(`${API_BASE}/api/create-playlist`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, 'X-Session-Token': sessionToken || '' },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}`, 'X-Session-Token': sessionToken || '' },
         body: JSON.stringify(body),
       });
 
+      let response = await postCreate(activeToken);
+
+      // Token likely expired mid-session → refresh once and retry.
+      if (response.status === 401) {
+        const fresh = await refreshSpotifyToken();
+        if (fresh) {
+          activeToken = fresh;
+          response = await postCreate(fresh);
+        }
+      }
+
       if (!response.ok) {
-        const err = await response.json();
+        if (response.status === 401) {
+          throw new Error('Your Spotify session expired. Please reconnect Spotify and try again.');
+        }
+        let err = {};
+        try { err = await response.json(); } catch { /* non-JSON error body */ }
         throw new Error(err.detail || err.error || 'Failed to generate playlist');
       }
 
       const data = await response.json();
       const playlistNum = parseInt(localStorage.getItem('playlistCount') || '0') + 1;
       localStorage.setItem('playlistCount', String(playlistNum));
-      setPlaylist(data.tracks);
+
+      const genTracks = data.tracks || [];
+      const genUrls   = new Set(genTracks.map((t) => t.spotifyUrl));
+      const pinnedForDisplay = (pinnedTracks || [])
+        .filter((t) => t.spotifyUrl && !genUrls.has(t.spotifyUrl))
+        .map((t) => ({ title: t.title, artist: t.artist, albumArt: t.albumArt, spotifyUrl: t.spotifyUrl }));
+      setPlaylist([...pinnedForDisplay, ...genTracks]);
+      if (pinnedTracks && pinnedTracks.length) clearPinnedTracks();
       setPlaylistUrl(data.playlist_url);
       setPlaylistId(data.playlist_id || null);
       setPlaylistNameResult(playlistName.trim() || `M&M playlist ${playlistNum}`);
 
-      if (data.playlist_id) uploadCoverToSpotify(token, data.playlist_id, newSeed);
+      if (data.playlist_id) uploadCoverToSpotify(activeToken, data.playlist_id, newSeed);
     } catch (err) {
       setError(err.message || 'Unexpected error');
     } finally {
@@ -456,13 +502,10 @@ export default function GeneratorPage() {
   }, []);
 
   const handleRemoveTrack = async (track, index) => {
-    
     setPlaylist(prev => prev.filter((_, i) => i !== index));
 
-    
     if (!window.ignoredTrackUris) window.ignoredTrackUris = new Set();
     if (track.spotifyUrl) {
-      
       let id = track.spotifyUrl.split('/').pop();
       if (id.includes('?')) id = id.split('?')[0];
       if (id) window.ignoredTrackUris.add(`spotify:track:${id}`);
@@ -472,7 +515,7 @@ export default function GeneratorPage() {
       try {
         let trackId = track.spotifyUrl.split('/').pop();
         if (trackId.includes('?')) trackId = trackId.split('?')[0];
-        if(!trackId) return;
+        if (!trackId) return;
 
         await fetch(`https://api.spotify.com/v1/playlists/${playlistId}/tracks`, {
           method: 'DELETE',
@@ -494,7 +537,6 @@ export default function GeneratorPage() {
     <>
       <div className="gen-card">
 
-        {}
         <div className="gen-header">
           <div className="gen-eyebrow">Vædarth · AI Curator</div>
           <h1 className="gen-title">Playlist<br />Generator</h1>
@@ -504,7 +546,6 @@ export default function GeneratorPage() {
           <div className="gen-title-rule" />
         </div>
 
-        {/* Style-quiz handoff banner */}
         {styleBanner && (
           <div className="gen-style-banner">
             Pre-filled from your <strong>{styleBanner.name}</strong> style,
@@ -514,7 +555,31 @@ export default function GeneratorPage() {
           </div>
         )}
 
-        {/* Spotify connect */}
+        {pinnedTracks && pinnedTracks.length > 0 && (
+          <div className="gen-pinned-banner">
+            <span className="gen-pinned-text">
+              🎵 <strong>{pinnedTracks.length} song{pinnedTracks.length > 1 ? 's' : ''}</strong> from your quiz
+              will be added to this playlist
+            </span>
+            <div className="gen-pinned-chips">
+              {pinnedTracks.map((t, i) => (
+                <button
+                  key={`${t.uri || t.title}-${i}`}
+                  type="button"
+                  className="gen-pinned-chip"
+                  onClick={() => playNow(t)}
+                  title={`Play ${t.title}, ${t.artist}`}
+                >
+                  ▶ {t.title}
+                </button>
+              ))}
+            </div>
+            <button type="button" className="gen-style-banner-clear" onClick={clearPinnedTracks}>
+              clear
+            </button>
+          </div>
+        )}
+
         {!isConnected && (
           <div className="gen-connect-block">
             <div className="gen-connect-inner">
@@ -531,11 +596,9 @@ export default function GeneratorPage() {
           </div>
         )}
 
-        {}
         {isConnected && (
           <form className="gen-form" onSubmit={handleGeneratePlaylist}>
 
-            {}
             <div className="gen-field">
               <label className="gen-label">Describe your mood &amp; intent</label>
               <textarea
@@ -548,7 +611,6 @@ export default function GeneratorPage() {
               />
             </div>
 
-            {}
             <div className="gen-name-cover-row">
               <div className="gen-field gen-name-field">
                 <label className="gen-label">Playlist name</label>
@@ -574,7 +636,6 @@ export default function GeneratorPage() {
               </div>
             </div>
 
-            {}
             <LanguagePillSelector
               label="Language"
               options={LANGUAGES}
@@ -582,7 +643,6 @@ export default function GeneratorPage() {
               onChange={setLanguages}
             />
 
-            {}
             <GenrePillSelector
               label="Genre"
               options={GENRES}
@@ -590,7 +650,6 @@ export default function GeneratorPage() {
               onChange={setGenres}
             />
 
-            {}
             {isIndian && (
               <div className="gen-indian-block">
                 <p className="gen-indian-heading">🎬 Indian Film Options</p>
@@ -629,7 +688,6 @@ export default function GeneratorPage() {
               </div>
             )}
 
-            {}
             <div className="gen-field">
               <label className="gen-label">Playlist size</label>
               <div className="gen-range-pills">
@@ -661,7 +719,6 @@ export default function GeneratorPage() {
 
         {error && <div className="gen-error">{error}</div>}
 
-        {}
         {playlist && (
           <div className="gen-results">
             <div className="gen-results-header">
@@ -704,9 +761,18 @@ export default function GeneratorPage() {
                     </span>
                     <span className="gen-track-arrow">↗</span>
                   </a>
-                  <button 
-                    type="button" 
-                    className="gen-track-remove" 
+                  <button
+                    type="button"
+                    className="gen-track-play"
+                    onClick={() => playNow({ title, artist, albumArt, spotifyUrl })}
+                    title="Play in app"
+                    aria-label={`Play ${title}`}
+                  >
+                    ▶
+                  </button>
+                  <button
+                    type="button"
+                    className="gen-track-remove"
                     onClick={() => handleRemoveTrack({ title, artist, spotifyUrl }, i)}
                     title="Remove track"
                   >

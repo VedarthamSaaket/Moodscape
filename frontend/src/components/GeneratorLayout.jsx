@@ -3,6 +3,9 @@ import { Outlet, useNavigate, NavLink } from 'react-router-dom';
 import { AuthContext } from '../AuthContext';
 import useStudioStore from '../store';
 import useQuizStore from '../store/quizStore';
+import useSavedStore from '../store/savedStore';
+import usePlayerStore from '../store/playerStore';
+import useSaintStore from '../store/saintStore';
 import Dither from '../assets/Dither';
 import './../App.css';
 
@@ -13,18 +16,30 @@ function GeneratorLayout() {
   const resetHydration   = useStudioStore((s) => s.resetHydration);
   const hydrateQuiz        = useQuizStore((s) => s.hydrateFromServer);
   const resetQuizHydration = useQuizStore((s) => s.resetHydration);
+  const hydrateSaved       = useSavedStore((s) => s.hydrate);
+  const resetSavedHydration = useSavedStore((s) => s.resetHydration);
+  const hydratePlayer       = usePlayerStore((s) => s.hydrate);
+  const resetPlayerHydration = usePlayerStore((s) => s.resetHydration);
+  const hydrateSaint        = useSaintStore((s) => s.hydrate);
+  const resetSaintHydration = useSaintStore((s) => s.resetHydration);
 
   // Sync moodboards and the saved quiz result once per session.
   // No-op if logged out or already hydrated.
   useEffect(() => {
     hydrateFromServer();
     hydrateQuiz();
-  }, [hydrateFromServer, hydrateQuiz]);
+    hydrateSaved();
+    hydratePlayer();
+    hydrateSaint();
+  }, [hydrateFromServer, hydrateQuiz, hydrateSaved, hydratePlayer, hydrateSaint]);
 
   const handleLogout = () => {
     // Clear hydrate flags so the next user's session starts a fresh sync.
     resetHydration();
     resetQuizHydration();
+    resetSavedHydration();
+    resetPlayerHydration();
+    resetSaintHydration();
     localStorage.removeItem('authToken');
     setIsLoggedIn(false);
     navigate('/');
@@ -34,7 +49,7 @@ function GeneratorLayout() {
     <div className="generator-layout-container">
       <div className="gen-beams-bg">
         <Dither
-          waveColor={[0.18, 0.36, 0.52]}
+          waveColor={[0.4, 0.66, 0.92]}
           waveSpeed={0.04}
           waveFrequency={3}
           waveAmplitude={0.3}
@@ -55,6 +70,9 @@ function GeneratorLayout() {
           </NavLink>
           <NavLink to="/quiz" className={({ isActive }) => 'gen-tab' + (isActive ? ' active' : '')}>
             Quiz
+          </NavLink>
+          <NavLink to="/saved" className={({ isActive }) => 'gen-tab' + (isActive ? ' active' : '')}>
+            Saved
           </NavLink>
         </nav>
         <button onClick={handleLogout} className="btn-logout">

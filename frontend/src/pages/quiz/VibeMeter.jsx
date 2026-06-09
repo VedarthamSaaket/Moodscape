@@ -3,13 +3,13 @@ import { axisToUnit } from './scoreQuiz.js';
 import { AXIS_LABELS } from './quizData.js';
 
 /**
- * VibeMeter — a 4-axis radial chart drawn by hand in SVG.
+ * VibeMeter, a 4-axis radial chart drawn by hand in SVG.
  * Axes shown on a cross: temp ↔ Warm (top), edge ↔ Sharp (right),
  *                        era ↔ Futurist (bottom), density ↔ Maximalist (left).
  *
  * Each axis line spans from −1 to +1 (radius=R). The user's score is mapped
  * to that −1..+1 range; the resulting point is drawn on the axis. The four
- * points are connected by a closed quadrilateral — the user's "shape".
+ * points are connected by a closed quadrilateral, the user's "shape".
  *
  * Props:
  *   scores  {temp, edge, era, density}

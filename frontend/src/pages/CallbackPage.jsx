@@ -31,6 +31,9 @@ function CallbackPage() {
           if (response.ok) {
             const data = await response.json();
             localStorage.setItem('spotify_token', data.access_token);
+            if (data.refresh_token) {
+              localStorage.setItem('spotify_refresh_token', data.refresh_token);
+            }
             setIsLoggedIn(true);
             navigate('/generator');
           } else {

@@ -1,16 +1,64 @@
+import time
+import base64
 import random
+import threading
 from typing import Optional
 from concurrent.futures import as_completed, TimeoutError as FutureTimeoutError
 
 import requests
 from fastapi import HTTPException
 
-from config import logger
+from config import logger, SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET
 from mood_engine import (
     build_search_queries, detect_indian_language, parse_language,
     DeduplicationState, _GLOBAL_EXECUTOR,
 )
 from query_banks import INDIAN_LANG_QUERY_BANKS
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# App-level (client-credentials) token
+# ─────────────────────────────────────────────────────────────────────────────
+# Some flows (e.g. the post-quiz song suggestions on the result screen) need to
+# search Spotify BEFORE the user has connected their own Spotify account. The
+# Client-Credentials grant yields an app-scoped token that can hit the public
+# search/track endpoints (it cannot touch a user's library — that still needs
+# the user's own Bearer token). Cached in-memory and refreshed ~1 min early.
+_app_token_cache = {"token": None, "expires_at": 0.0}
+_app_token_lock  = threading.Lock()
+
+
+def get_app_token() -> str:
+    now = time.time()
+    with _app_token_lock:
+        if _app_token_cache["token"] and now < _app_token_cache["expires_at"] - 60:
+            return _app_token_cache["token"]
+
+        if not SPOTIFY_CLIENT_ID or not SPOTIFY_CLIENT_SECRET:
+            raise HTTPException(status_code=503, detail="Spotify is not configured on the server.")
+
+        basic = base64.b64encode(
+            f"{SPOTIFY_CLIENT_ID}:{SPOTIFY_CLIENT_SECRET}".encode()
+        ).decode()
+        try:
+            res = requests.post(
+                "https://accounts.spotify.com/api/token",
+                headers={
+                    "Authorization":  f"Basic {basic}",
+                    "Content-Type":   "application/x-www-form-urlencoded",
+                },
+                data={"grant_type": "client_credentials"},
+                timeout=8,
+            )
+            res.raise_for_status()
+            data = res.json()
+        except Exception as exc:
+            logger.error(f"[SPOTIFY] client-credentials token error: {exc}")
+            raise HTTPException(status_code=503, detail="Could not authenticate with Spotify.")
+
+        _app_token_cache["token"]      = data["access_token"]
+        _app_token_cache["expires_at"] = now + data.get("expires_in", 3600)
+        return _app_token_cache["token"]
 
 
 def get_spotify_user_profile(token: str):
@@ -45,6 +93,33 @@ def search_tracks_by_query(token: str, query: str, market: str, limit: int = 30)
     if res.status_code == 200:
         return res.json().get("tracks", {}).get("items", [])
     return []
+
+
+def search_artist(token: str, name: str, market: str) -> Optional[dict]:
+    """Resolve a free-text artist name to a Spotify artist object (id + genres)."""
+    res = requests.get(
+        "https://api.spotify.com/v1/search",
+        headers={"Authorization": f"Bearer {token}"},
+        params={"q": name, "type": "artist", "limit": 1, "market": market},
+        timeout=6,
+    )
+    if res.status_code != 200:
+        return None
+    items = res.json().get("artists", {}).get("items", [])
+    return items[0] if items else None
+
+
+def get_artist_top_tracks(token: str, artist_id: str, market: str) -> list:
+    """Return an artist's top tracks (up to 10) for a market."""
+    res = requests.get(
+        f"https://api.spotify.com/v1/artists/{artist_id}/top-tracks",
+        headers={"Authorization": f"Bearer {token}"},
+        params={"market": market},
+        timeout=6,
+    )
+    if res.status_code != 200:
+        return []
+    return res.json().get("tracks", [])
 
 
 def search_movie_album(token: str, movie_name: str, indian_lang: str) -> list:

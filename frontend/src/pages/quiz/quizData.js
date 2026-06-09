@@ -279,6 +279,47 @@ export const QUESTIONS = [
   },
 
   {
+    id: 'lyrics',
+    kind: 'tile',
+    prompt: 'What hooks you into a song first?',
+    caption: 'Before you could explain why, what already had you.',
+    options: [
+      {
+        id: 'words',
+        label: 'The words',
+        whisper: 'One line that quietly guts you.',
+        swatch: 'linear-gradient(160deg,#1a1408 0%,#3a2e18 55%,#a9925e 100%)',
+        searchQuery: 'handwritten lyrics notebook ink close up',
+        delta: { temp: +1, edge: -1, era: -1, density: 0 },
+      },
+      {
+        id: 'voice',
+        label: 'The voice',
+        whisper: 'Tone before you parse a single word.',
+        swatch: 'linear-gradient(160deg,#2a1a22 0%,#5a3242 55%,#d8a0b4 100%)',
+        searchQuery: 'singer microphone warm stage light',
+        delta: { temp: +1, edge: -1, era: 0, density: 0 },
+      },
+      {
+        id: 'beat',
+        label: 'The beat & build',
+        whisper: 'Production you feel in your chest.',
+        swatch: 'linear-gradient(160deg,#06101c 0%,#123047 55%,#39c0d8 100%)',
+        searchQuery: 'music production studio neon mixer',
+        delta: { temp: -1, edge: +2, era: +2, density: +1 },
+      },
+      {
+        id: 'air',
+        label: 'The whole atmosphere',
+        whisper: 'The room a song builds around you.',
+        swatch: 'linear-gradient(160deg,#0a0e12 0%,#1f2a30 55%,#6a8088 100%)',
+        searchQuery: 'foggy atmospheric landscape muted ambient',
+        delta: { temp: -1, edge: -1, era: 0, density: -1 },
+      },
+    ],
+  },
+
+  {
     id: 'dinner',
     kind: 'tile',
     prompt: 'How do you want to eat tonight?',
@@ -360,6 +401,47 @@ export const QUESTIONS = [
     ],
   },
 
+  {
+    id: 'low',
+    kind: 'tile',
+    prompt: 'Alone and low, what do you put on?',
+    caption: 'The honest answer, not the impressive one.',
+    options: [
+      {
+        id: 'sit-with',
+        label: 'Something that sits with me',
+        whisper: 'A song that agrees to be sad too.',
+        swatch: 'linear-gradient(160deg,#0c1018 0%,#22303f 55%,#5e7488 100%)',
+        searchQuery: 'rain window melancholy blue evening',
+        delta: { temp: 0, edge: -1, era: -1, density: -1 },
+      },
+      {
+        id: 'lift',
+        label: 'Something warm that lifts me',
+        whisper: 'A hand under the chin, gently up.',
+        swatch: 'linear-gradient(160deg,#3a2008 0%,#a8641e 55%,#f0c25a 100%)',
+        searchQuery: 'golden warm sunrise hopeful field',
+        delta: { temp: +2, edge: 0, era: 0, density: +1 },
+      },
+      {
+        id: 'silence',
+        label: 'Almost-silence, just air',
+        whisper: 'Ambient, space, room to breathe.',
+        swatch: 'linear-gradient(160deg,#0a0c0e 0%,#1a2024 55%,#7a8a90 100%)',
+        searchQuery: 'minimal empty space fog calm grey',
+        delta: { temp: -1, edge: -1, era: 0, density: -2 },
+      },
+      {
+        id: 'drown',
+        label: 'Something loud to drown it',
+        whisper: 'Turn it up until it’s the only thing.',
+        swatch: 'linear-gradient(160deg,#160606 0%,#3a1010 55%,#d8401c 100%)',
+        searchQuery: 'loud concert crowd red light intense',
+        delta: { temp: -1, edge: +2, era: +1, density: +1 },
+      },
+    ],
+  },
+
   // ─── Likert tiebreakers ────────────────────────────────────────────────────
   {
     id: 'loudness',
@@ -386,6 +468,46 @@ export const QUESTIONS = [
       { id: 'composed',   label: 'Carefully composed',       delta: { temp: 0,  edge: 0,  era: 0,  density: 0 } },
       { id: 'sharp',      label: 'Sharp and intentional',    delta: { temp: -1, edge: +2, era: +1, density: -1 } },
       { id: 'polished',   label: 'Polished to a mirror',     delta: { temp: -1, edge: +2, era: +2, density: -1 } },
+    ],
+  },
+  {
+    id: 'setting',
+    kind: 'likert',
+    prompt: 'Most of your listening happens…',
+    caption: 'Where the music actually meets your life.',
+    options: [
+      { id: 'alone',      label: 'Alone, headphones, fully in it',  delta: { temp: -1, edge: -1, era: 0, density: -2 } },
+      { id: 'moving',     label: 'On the move, walking, driving',  delta: { temp: 0,  edge: 0,  era: 0, density: 0 } },
+      { id: 'background', label: 'Under everything, as a backdrop', delta: { temp: 0,  edge: -1, era: 0, density: -1 } },
+      { id: 'social',     label: 'Around people, shared out loud',  delta: { temp: +1, edge: +1, era: 0, density: +1 } },
+      { id: 'crowd',      label: 'Packed rooms, full volume',       delta: { temp: +1, edge: +2, era: 0, density: +2 } },
+    ],
+  },
+
+  {
+    id: 'era',
+    kind: 'likert',
+    prompt: 'Your music mostly lives…',
+    caption: 'Where on the timeline you feel at home.',
+    options: [
+      { id: 'old-soul', label: 'Decades before my time',  delta: { temp: +1, edge: -1, era: -2, density: 0 } },
+      { id: 'one-era',  label: 'In one older era I love',  delta: { temp: 0,  edge: 0,  era: -1, density: 0 } },
+      { id: 'allover',  label: 'Scattered all over it',    delta: { temp: 0,  edge: 0,  era: 0,  density: 0 } },
+      { id: 'recent',   label: 'Mostly recent things',     delta: { temp: 0,  edge: +1, era: +1, density: 0 } },
+      { id: 'bleeding', label: 'Whatever just dropped',    delta: { temp: -1, edge: +1, era: +2, density: +1 } },
+    ],
+  },
+
+  {
+    id: 'discovery',
+    kind: 'likert',
+    prompt: 'New music usually reaches you by…',
+    caption: 'How the next favourite tends to find you.',
+    options: [
+      { id: 'digging', label: 'Digging, deep cuts no one knows', delta: { temp: -1, edge: +1, era: -1, density: -1 } },
+      { id: 'people',  label: 'People I trust passing it on',     delta: { temp: +1, edge: 0,  era: 0,  density: 0 } },
+      { id: 'algo',    label: 'Playlists and algorithms',         delta: { temp: 0,  edge: 0,  era: +1, density: 0 } },
+      { id: 'charts',  label: 'Charts, whatever’s everywhere',   delta: { temp: +1, edge: 0,  era: +1, density: +1 } },
     ],
   },
 ];

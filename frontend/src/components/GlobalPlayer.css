@@ -1,0 +1,220 @@
+/* Global persistent now-playing bar + YouTube host.
+   The bar is fixed to the bottom and rides above every page. */
+
+.gp-host {
+  position: fixed;
+  z-index: 1400;
+  border-radius: 14px;
+  overflow: hidden;
+  background: #000;
+}
+.gp-host iframe {
+  width: 100% !important;
+  height: 100% !important;
+  display: block;
+  border: 0;
+}
+
+/* Off-screen but still rendered → audio keeps playing while hidden.
+   (display:none would stop YouTube playback in some browsers.) */
+.gp-host--idle,
+.gp-host--collapsed {
+  left: -9999px;
+  top: -9999px;
+  width: 200px;
+  height: 200px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Expanded → a visible 16:9 video panel sitting just above the bar. */
+.gp-host--expanded {
+  right: 18px;
+  bottom: 92px;
+  width: 300px;
+  height: 169px;
+  opacity: 1;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.gp-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1399;
+  height: 72px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 18px;
+  background: rgba(10, 12, 18, 0.86);
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  border-top: 1px solid rgba(255, 255, 255, 0.09);
+  color: #ecedf0;
+  font-family: inherit;
+  animation: gp-rise 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes gp-rise {
+  from { transform: translateY(100%); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+
+/* ── Now-playing meta ── */
+.gp-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.gp-art {
+  width: 48px;
+  height: 48px;
+  border-radius: 8px;
+  overflow: hidden;
+  flex: 0 0 auto;
+  background: rgba(255, 255, 255, 0.06);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.gp-art img { width: 100%; height: 100%; object-fit: cover; }
+.gp-art-svg { display: block; width: 100%; height: 100%; }
+.gp-art-fallback { font-size: 20px; opacity: 0.5; }
+
+.gp-text { display: flex; flex-direction: column; min-width: 0; }
+.gp-title {
+  font-size: 0.92rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 38vw;
+}
+.gp-artist {
+  font-size: 0.76rem;
+  color: #a7adba;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 38vw;
+}
+
+/* ── Transport ── */
+.gp-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+}
+.gp-ctrl {
+  background: none;
+  border: none;
+  color: #d6d9e0;
+  font-size: 1.05rem;
+  cursor: pointer;
+  padding: 6px;
+  line-height: 1;
+  border-radius: 8px;
+  transition: color 0.15s, background 0.15s, transform 0.1s;
+}
+.gp-ctrl:hover { color: #fff; background: rgba(255, 255, 255, 0.08); }
+.gp-ctrl:active { transform: scale(0.92); }
+.gp-ctrl--play {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: #fff;
+  color: #0a0c12;
+  font-size: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.gp-ctrl--play:hover { background: #fff; color: #0a0c12; transform: scale(1.06); }
+
+/* ── Right cluster ── */
+.gp-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 auto;
+  justify-content: flex-end;
+}
+.gp-mini {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #c4c9d4;
+  font-size: 0.72rem;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  padding: 6px 10px;
+  border-radius: 999px;
+  transition: all 0.15s;
+}
+.gp-mini:hover { color: #fff; border-color: rgba(255, 255, 255, 0.25); }
+.gp-mini.is-active { background: rgba(255, 255, 255, 0.16); color: #fff; }
+.gp-close { padding: 6px 9px; }
+
+/* ── Minimized floating pill (audio keeps playing, click to reopen) ── */
+.gp-pill {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 1399;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 240px;
+  padding: 7px 14px 7px 7px;
+  border-radius: 999px;
+  border: 1px solid rgba(120, 170, 220, 0.28);
+  background: rgba(10, 12, 18, 0.9);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  color: #ecedf0;
+  cursor: pointer;
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.5);
+  animation: gp-rise 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+  transition: transform 0.12s, border-color 0.18s;
+}
+.gp-pill:hover { transform: translateY(-2px); border-color: rgba(140, 190, 230, 0.55); }
+.gp-pill:active { transform: scale(0.97); }
+.gp-pill-art {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  overflow: hidden;
+  flex: 0 0 auto;
+}
+.gp-pill-art .gp-art-svg { border-radius: 50%; }
+.gp-pill-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.2; }
+.gp-pill-title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 170px;
+}
+.gp-pill-tag {
+  font-size: 0.62rem;
+  letter-spacing: 0.04em;
+  color: #8fb6d8;
+  text-transform: uppercase;
+}
+
+@media (max-width: 640px) {
+  .gp-bar { height: 64px; gap: 10px; padding: 0 12px; }
+  .gp-title, .gp-artist { max-width: 46vw; }
+  .gp-right .gp-mini:not(.gp-close) { display: none; }
+  .gp-host--expanded { right: 10px; bottom: 80px; width: 220px; height: 124px; }
+}
+
+/* Keep page content clear of the fixed bar while it's visible. */
+body.has-player .generator-content { padding-bottom: 100px; }
+body.has-player .quiz-shell { padding-bottom: 24px; }

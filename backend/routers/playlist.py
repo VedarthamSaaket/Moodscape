@@ -1,5 +1,6 @@
 import re
 import requests
+from itertools import zip_longest
 from concurrent.futures import as_completed, TimeoutError as FutureTimeoutError
 
 from fastapi import APIRouter, HTTPException, Request
@@ -13,9 +14,10 @@ from mood_engine import (
 from spotify import (
     get_spotify_user_profile, normalise_track, search_tracks_by_query,
     search_movie_album, create_playlist_in_profile, add_tracks_to_playlist,
-    verify_playlist_ownership, get_recommendations,
+    verify_playlist_ownership, get_recommendations, get_app_token,
+    search_artist, get_artist_top_tracks,
 )
-from models import PlaylistRequest, AddTracksRequest, SimilarTracksRequest
+from models import PlaylistRequest, AddTracksRequest, SimilarTracksRequest, SuggestionsRequest
 
 router = APIRouter()
 
@@ -125,7 +127,19 @@ def create_playlist(data: PlaylistRequest, request: Request):
                     track_uris.append(uri)
                     all_tracks.append(t)
 
-        if not all_tracks:
+        # ── Pinned songs from the post-quiz suggestions ──────────────────────
+        # Added FIRST and verbatim, regardless of the mood/genre/language menu.
+        pinned_clean = []
+        seen_uris    = set(track_uris)
+        for u in (data.pinnedUris or []):
+            if isinstance(u, str) and u.startswith("spotify:track:") and u not in seen_uris:
+                seen_uris.add(u)
+                pinned_clean.append(u)
+        if pinned_clean:
+            track_uris = pinned_clean + track_uris
+            logger.info(f"[PINNED] prepending {len(pinned_clean)} pinned track(s) from quiz")
+
+        if not all_tracks and not pinned_clean:
             raise HTTPException(
                 status_code=500,
                 detail="Couldn't find tracks for this mood. Try describing it differently.",
@@ -286,3 +300,130 @@ def similar_tracks(data: SimilarTracksRequest, request: Request):
             for t in result_tracks
         ]
     }
+
+
+@router.post("/api/quiz/suggestions")
+def quiz_suggestions(data: SuggestionsRequest, request: Request):
+    """Return a blended set of individual song suggestions shaped by BOTH the
+    user's quiz archetype AND their named favourite artist (if any). Uses an
+    app-level Spotify token, so this works on the quiz result screen even before
+    the user has connected their own Spotify account. Does NOT create a playlist.
+
+    The blend, when an artist is named, is three strands woven together:
+      1. a few of the artist's own top tracks,
+      2. tracks in the artist's sonic theme (their Spotify genres + the mood),
+      3. archetype/quiz-driven recommendations.
+    With no artist, the whole list is quiz-archetype driven.
+    """
+    require_session_token(request, lax=True)
+
+    token = get_app_token()
+
+    vibe      = sanitise_user_text((data.vibePrompt or "").strip(), "vibePrompt", max_len=400) if data.vibePrompt else ""
+    arch_name = sanitise_user_text((data.archetypeName or "").strip(), "archetypeName", max_len=80) if data.archetypeName else ""
+    personal  = sanitise_search_token(data.personalSeed or "", "personalSeed", max_len=120)
+
+    mood_text = vibe or arch_name or "chill"
+    if arch_name and arch_name.lower() not in mood_text.lower():
+        mood_text = f"In a {arch_name} aesthetic, {mood_text}"
+    mood_text = mood_text[:500]
+
+    selected_langs  = [sanitise_language(l) for l in (data.languageSeed or ["English"])][:5]
+    selected_genres = [sanitise_genre(g) for g in (data.genreSeed or [])][:5]
+    count           = max(1, min(data.count or 10, 12))
+
+    lang_key = LANGUAGE_ALIASES.get((selected_langs[0] if selected_langs else "english").lower(), "english")
+    market   = LANGUAGE_CONFIG.get(lang_key, LANGUAGE_CONFIG["english"]).get("market", "US")
+
+    mood_profile = parse_mood_profile(mood_text, None)
+    dedup        = DeduplicationState()
+
+    artist_tracks = []   # 1. the artist's own songs
+    theme_tracks  = []   # 2. songs in the artist's sonic theme
+    artist_genres = []
+
+    # 0. The exact track the user named, guaranteed into the list (deduped so the
+    #    artist/theme/quiz strands below won't repeat it). When they typed an
+    #    artist rather than a song this usually no-ops and the artist strand
+    #    carries it instead.
+    seed_tracks = []
+    if personal:
+        try:
+            for t in search_tracks_by_query(token, personal, market, limit=1):
+                uri = t.get("uri", "")
+                a   = t["artists"][0]["name"] if t.get("artists") else ""
+                if uri and dedup.is_allowed(uri, a):
+                    dedup.register(uri, a)
+                    seed_tracks.append(normalise_track(t))
+        except Exception as exc:
+            logger.warning(f"[SUGGEST] seed track search failed: {exc}")
+
+    if personal:
+        # ── 1. The artist's own top tracks ──────────────────────────────────
+        try:
+            artist = search_artist(token, personal, market)
+            if artist:
+                artist_genres = [g for g in (artist.get("genres") or []) if g][:3]
+                want_artist   = min(4, max(2, count // 3))
+                for t in get_artist_top_tracks(token, artist["id"], market):
+                    uri = t.get("uri", "")
+                    a   = t["artists"][0]["name"] if t.get("artists") else ""
+                    if uri and dedup.is_allowed(uri, a):
+                        dedup.register(uri, a)
+                        artist_tracks.append(normalise_track(t))
+                    if len(artist_tracks) >= want_artist:
+                        break
+            if not artist_tracks:
+                # Fallback: plain track search for whatever they typed.
+                for t in search_tracks_by_query(token, personal, market, limit=10):
+                    uri = t.get("uri", "")
+                    a   = t["artists"][0]["name"] if t.get("artists") else ""
+                    if uri and dedup.is_allowed(uri, a):
+                        dedup.register(uri, a)
+                        artist_tracks.append(normalise_track(t))
+                    if len(artist_tracks) >= 3:
+                        break
+        except Exception as exc:
+            logger.warning(f"[SUGGEST] artist lookup failed: {exc}")
+
+        # ── 2. Tracks in the artist's theme (their genres + the quiz mood) ───
+        emotion = (mood_profile.get("emotion") or "").strip()
+        for g in artist_genres:
+            if len(artist_tracks) + len(theme_tracks) >= count:
+                break
+            q = sanitise_search_token(f"{g} {emotion}".strip(), "themeQuery", max_len=120)
+            try:
+                for t in search_tracks_by_query(token, q, market, limit=15):
+                    uri = t.get("uri", "")
+                    a   = t["artists"][0]["name"] if t.get("artists") else ""
+                    if uri and dedup.is_allowed(uri, a):
+                        dedup.register(uri, a)
+                        theme_tracks.append(normalise_track(t))
+                    if len(theme_tracks) >= 3:
+                        break
+            except Exception as exc:
+                logger.warning(f"[SUGGEST] theme search '{q}' failed: {exc}")
+
+    # ── 3. Archetype / quiz-driven recommendations fill the rest ────────────
+    remaining   = max(0, count - len(seed_tracks) - len(artist_tracks) - len(theme_tracks))
+    quiz_tracks = []
+    if remaining > 0:
+        try:
+            quiz_tracks = get_recommendations(
+                token, mood_text, mood_profile, remaining,
+                selected_langs, selected_genres, None, None, dedup,
+            )
+        except Exception as exc:
+            logger.warning(f"[SUGGEST] recommendations failed: {exc}")
+
+    # Weave the three strands round-robin so the list reads as a genuine blend
+    # rather than three stacked blocks. The user's named track always leads.
+    blended = (seed_tracks + [
+        t for group in zip_longest(artist_tracks, theme_tracks, quiz_tracks)
+        for t in group if t
+    ])[:count]
+
+    if not blended:
+        raise HTTPException(status_code=404, detail="Couldn't find song suggestions right now. Try again.")
+
+    return {"tracks": blended}

@@ -26,6 +26,22 @@ class PlaylistRequest(BaseModel):
     styleArchetypeId:     Optional[str] = None
     styleArchetypeName:   Optional[str] = None
     styleVibePrompt:      Optional[str] = None
+    # Songs the user pinned from the post-quiz suggestions. These spotify:track:
+    # URIs are added to the generated playlist verbatim, regardless of the
+    # mood/genre/language choices made in the generator menu.
+    pinnedUris:           Optional[list[str]] = None
+
+
+class SuggestionsRequest(BaseModel):
+    """Post-quiz song suggestions (a blend of archetype + favourite-artist
+    tracks, not a playlist)."""
+    archetypeId:   Optional[str]       = None
+    archetypeName: Optional[str]       = None
+    vibePrompt:    Optional[str]       = None
+    genreSeed:     Optional[list[str]] = None
+    languageSeed:  Optional[list[str]] = None
+    personalSeed:  Optional[str]       = None
+    count:         int                 = 10
 
 class MoodRequest(BaseModel):
     text: str
@@ -36,6 +52,18 @@ class VerifyEmail(BaseModel):
 
 class ResendCode(BaseModel):
     email: EmailStr
+
+class ForgotPassword(BaseModel):
+    email:  EmailStr
+    method: str = "link"   # "link" (emailed reset link) or "code" (6-digit OTP)
+
+class VerifyResetCode(BaseModel):
+    email: EmailStr
+    code:  str
+
+class ResetPassword(BaseModel):
+    resetToken:  str
+    newPassword: str
 
 class AddTracksRequest(BaseModel):
     playlist_id: str

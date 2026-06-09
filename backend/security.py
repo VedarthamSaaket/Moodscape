@@ -267,12 +267,25 @@ _RATE_RULES: dict[str, tuple[int, int]] = {
     "/api/signup":             (5,  300),
     "/api/verify-email":       (10,  60),
     "/api/resend-verify-code": (3,  300),
+    "/api/forgot-password":    (5,  300),
+    "/api/verify-reset-code":  (10,  60),
+    "/api/reset-password":     (10,  60),
     "/api/create-playlist":    (30,  60),
     "/api/add-tracks":         (30,  60),
     "/api/similar-tracks":     (20,  60),
     "/api/get-mood-data":      (20,  60),
+    "/api/quiz/suggestions":   (30,  60),
+    "/api/youtube/resolve":    (90,  60),
     "/api/login/spotify":      (20,  60),
     "/api/callback/spotify":   (20,  60),
+    "/api/refresh/spotify":    (30,  60),
+    "/api/saved":              (60,  60),
+    "/api/saved/add":          (60,  60),
+    "/api/saved/remove":       (60,  60),
+    "/api/saved/clear":        (10,  60),
+    "/api/player/queue":       (120, 60),
+    "/api/saint/stats":        (30,  60),
+    "/api/saint/record":       (30,  60),
 }
 
 def check_rate_limit(request: Request) -> None:
@@ -343,6 +356,9 @@ _AUTH_PATHS = frozenset({
     "/api/signup",
     "/api/verify-email",
     "/api/resend-verify-code",
+    "/api/forgot-password",
+    "/api/verify-reset-code",
+    "/api/reset-password",
 })
 
 def check_bot_signals(request: Request) -> Optional[str]:

@@ -1,7 +1,7 @@
 /* ============================================================
-   MoodScape — App.css
+   MoodScape, App.css
    Landing  : Cinematic steel-grey mountain palette
-   Generator: Mountain dusk — steel, violet-mist, cold silver
+   Generator: Mountain dusk, steel, violet-mist, cold silver
    Fonts    : Cormorant Garamond · DM Sans · Space Mono
    ============================================================ */
 
@@ -23,12 +23,12 @@
 
 /* ── Tokens ── */
 :root {
-  /* Base — cool near-black, slight blue-slate undertone */
+  /* Base, cool near-black, slight blue-slate undertone */
   --black: #03050b;
   --deep: #05070f;
   --surface: #080b16;
 
-  /* Landing link colours — keep for auth buttons */
+  /* Landing link colours, keep for auth buttons */
   --blue: #2bd2ff;
   --blue-dim: rgba(43, 210, 255, 0.14);
   --rose: #ff6b9d;
@@ -48,19 +48,19 @@
   --rg-dim: rgba(154, 184, 204, 0.15);
   --rg-glow: rgba(154, 184, 204, 0.07);
 
-  /* Violet mist — secondary, dusk warmth without warmth */
+  /* Violet mist, secondary, dusk warmth without warmth */
   --mist: #8e9fc4;
   /* blue-violet, atmospheric            */
   --mist-light: #b8c6e0;
   /* lighter lavender-grey               */
   --mist-dim: rgba(142, 159, 196, 0.13);
 
-  /* Steel — neutral, cool slate complement */
+  /* Steel, neutral, cool slate complement */
   --steel: #8fa3b0;
   --steel-light: #b4c8d4;
   --steel-dim: rgba(143, 163, 176, 0.14);
 
-  /* Silver-white — parchment equivalent */
+  /* Silver-white, parchment equivalent */
   --parch: #dce8f0;
   --parch-dim: rgba(220, 232, 240, 0.55);
   --parch-faint: rgba(220, 232, 240, 0.20);
@@ -434,7 +434,7 @@ button:focus-visible {
    AUTH PAGES
    ============================================================ */
 
-/* ── Centering wrapper — standalone auth routes
+/* ── Centering wrapper, standalone auth routes
    Fixes VerifyEmailPage (and all auth pages) showing blank
    when there is no persistent-layout-container behind them. ── */
 .auth-page-wrapper {
@@ -503,7 +503,7 @@ button:focus-visible {
   overflow: hidden;
 }
 
-/* Top shimmer — cold silver fading to violet-mist */
+/* Top shimmer, cold silver fading to violet-mist */
 .auth-page::before {
   content: '';
   position: absolute;
@@ -558,7 +558,7 @@ button:focus-visible {
   z-index: 1;
 }
 
-/* Underline rule — steel → violet-mist */
+/* Underline rule, steel → violet-mist */
 .auth-page h1::after {
   content: '';
   display: block;
@@ -1113,7 +1113,7 @@ button:focus-visible {
 
 
 /* ============================================================
-   GENERATOR LAYOUT — mountain dusk atmosphere
+   GENERATOR LAYOUT, mountain dusk atmosphere
    ============================================================ */
 .generator-layout-container {
   min-height: 100vh;
@@ -1123,7 +1123,7 @@ button:focus-visible {
   background: #050710;
 }
 
-/* Atmospheric blooms — three-tone: steel top-left, mist centre, violet bottom-right */
+/* Atmospheric blooms, three-tone: steel top-left, mist centre, violet bottom-right */
 .generator-layout-container::before {
   content: '';
   position: fixed;
@@ -1324,7 +1324,8 @@ button:focus-visible {
   font-size: 0.6rem;
   letter-spacing: 0.24em;
   text-transform: uppercase;
-  color: var(--text-3);
+  color: rgba(237, 242, 247, 0.62);
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.6);
   text-decoration: none;
   padding: 6px 2px;
   transition: color 0.24s var(--ease);
@@ -2019,7 +2020,7 @@ button:focus-visible {
 
 
 /* ============================================================
-   LEGACY — kept for any pages still using old class names
+   LEGACY, kept for any pages still using old class names
    ============================================================ */
 .generator-page-content {
   font-family: var(--font-body);
@@ -2067,6 +2068,6 @@ button:focus-visible {
   position: fixed;
   inset: 0;
   z-index: 0;
-  opacity: 0.82;
+  opacity: 0.95;
   pointer-events: none;
 }

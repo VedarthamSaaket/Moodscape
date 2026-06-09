@@ -426,3 +426,61 @@
   color: var(--rg-light, #c8d8e6);
   border-color: rgba(220, 232, 240, 0.3);
 }
+/* ── Pinned songs from the quiz ───────────────────────────────────────── */
+.gen-pinned-banner {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    margin: 0 0 18px;
+    padding: 12px 14px;
+    border-radius: 12px;
+    background: rgba(40, 80, 115, 0.14);
+    border: 1px solid rgba(100, 155, 200, 0.30);
+    font-size: 0.9rem;
+    color: #cfe3f2;
+}
+.gen-pinned-text { flex: 1 1 auto; }
+.gen-pinned-text strong { color: #eaf4ff; }
+.gen-pinned-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    flex: 1 1 100%;
+    order: 3;
+}
+.gen-pinned-chip {
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    padding: 5px 10px;
+    border-radius: 999px;
+    border: 1px solid rgba(100, 155, 200, 0.35);
+    background: rgba(18, 42, 62, 0.5);
+    color: #cfe3f2;
+    font-size: 0.76rem;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+}
+.gen-pinned-chip:hover { background: rgba(40, 80, 115, 0.4); border-color: rgba(140, 190, 230, 0.6); }
+
+/* ── Per-track in-app play button ─────────────────────────────────────── */
+.gen-track-play {
+    flex-shrink: 0;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    border: 1px solid rgba(100, 155, 200, 0.30);
+    background: rgba(40, 80, 115, 0.14);
+    color: #cfe3f2;
+    font-size: 0.72rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding-left: 2px;
+    transition: background 0.15s, transform 0.1s, border-color 0.15s;
+}
+.gen-track-play:hover { background: rgba(40, 80, 115, 0.4); border-color: rgba(140, 190, 230, 0.6); }
+.gen-track-play:active { transform: scale(0.9); }

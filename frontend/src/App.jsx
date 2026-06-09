@@ -7,12 +7,15 @@ import HomePage from './pages/HomePage';
 import SignInPage from './pages/SignInPage';
 import SignUpPage from './pages/SignUpPage';
 import VerifyEmailPage from './pages/VerifyEmailPage';
+import ForgotPasswordPage from './pages/ForgotPasswordPage';
 import GeneratorPage from './pages/GeneratorPage';
 import StudioPage from './pages/StudioPage';
+import SavedPage from './pages/SavedPage';
 import QuizLayout from './components/QuizLayout';
 import QuizPage from './pages/QuizPage';
 import SaintOrSinnerPage from './pages/SaintOrSinnerPage';
 import CallbackPage from './pages/CallbackPage';
+import GlobalPlayer from './components/GlobalPlayer';
 import { AuthProvider } from './AuthContext';
 
 function App() {
@@ -26,6 +29,7 @@ function App() {
             <Route path="signin" element={<SignInPage />} />
             <Route path="signup" element={<SignUpPage />} />
             <Route path="verify-email" element={<VerifyEmailPage />} />
+            <Route path="forgot-password" element={<ForgotPasswordPage />} />
           </Route>
           <Route element={<ProtectedRoute />}>
             <Route path="/generator" element={<GeneratorLayout />}>
@@ -33,6 +37,9 @@ function App() {
             </Route>
             <Route path="/studio" element={<GeneratorLayout />}>
               <Route index element={<StudioPage />} />
+            </Route>
+            <Route path="/saved" element={<GeneratorLayout />}>
+              <Route index element={<SavedPage />} />
             </Route>
             <Route path="/quiz" element={<GeneratorLayout />}>
               <Route element={<QuizLayout />}>
@@ -42,6 +49,8 @@ function App() {
             </Route>
           </Route>
         </Routes>
+        {/* Persistent across every route, keeps playing until the tab closes. */}
+        <GlobalPlayer />
       </BrowserRouter>
     </AuthProvider>
   );

@@ -10,7 +10,7 @@ from config import (
     SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET,
     SPOTIFY_REDIRECT_URI, SPOTIFY_SCOPES,
 )
-from routers import auth, playlist, mood, studio, quiz
+from routers import auth, playlist, mood, studio, quiz, youtube, saved, player, saint
 
 
 sp_oauth = SpotifyOAuth(
@@ -54,6 +54,10 @@ app.include_router(playlist.router)
 app.include_router(mood.router)
 app.include_router(studio.router)
 app.include_router(quiz.router)
+app.include_router(youtube.router)
+app.include_router(saved.router)
+app.include_router(player.router)
+app.include_router(saint.router)
 
 
 if __name__ == "__main__":

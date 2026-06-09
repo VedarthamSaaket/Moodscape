@@ -177,6 +177,7 @@ function DitheredWaves({
   mouseRadius
 }) {
   const mesh = useRef(null);
+  const materialRef = useRef(null);
   const mouseRef = useRef(new THREE.Vector2());
   const { viewport, size, gl } = useThree();
 
@@ -204,7 +205,12 @@ function DitheredWaves({
 
   const prevColor = useRef([...waveColor]);
   useFrame(({ clock }) => {
-    const u = waveUniformsRef.current;
+    // Mutate the MATERIAL's live uniforms, not the standalone object we passed
+    // as the prop — under @react-three/fiber v9 those are not the same
+    // reference, which silently froze the animation.
+    const mat = materialRef.current;
+    if (!mat) return;
+    const u = mat.uniforms;
 
     if (!disableAnimation) {
       u.time.value = clock.getElapsedTime();
@@ -239,6 +245,7 @@ function DitheredWaves({
       <mesh ref={mesh} scale={[viewport.width, viewport.height, 1]}>
         <planeGeometry args={[1, 1]} />
         <shaderMaterial
+          ref={materialRef}
           vertexShader={waveVertexShader}
           fragmentShader={waveFragmentShader}
           uniforms={waveUniformsRef.current}
@@ -263,15 +270,15 @@ function DitheredWaves({
 }
 
 export default function Dither({
-  waveSpeed = 0.04,
+  waveSpeed = 0.05,
   waveFrequency = 3,
   waveAmplitude = 0.3,
-  waveColor = [0.18, 0.36, 0.52],
-  colorNum = 5,
+  waveColor = [0.5, 0.5, 0.5],
+  colorNum = 4,
   pixelSize = 2,
   disableAnimation = false,
-  enableMouseInteraction = false,
-  mouseRadius = 0.3
+  enableMouseInteraction = true,
+  mouseRadius = 1
 }) {
   return (
     <Canvas

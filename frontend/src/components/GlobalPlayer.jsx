@@ -1,0 +1,316 @@
+import React, { useEffect, useRef, useState, useCallback } from 'react';
+import usePlayerStore from '../store/playerStore';
+import { API_BASE } from '../config';
+import './GlobalPlayer.css';
+
+// ── Load the YouTube IFrame Player API exactly once ──────────────────────────
+let ytApiPromise = null;
+function loadYouTubeAPI() {
+  if (ytApiPromise) return ytApiPromise;
+  ytApiPromise = new Promise((resolve) => {
+    if (window.YT && window.YT.Player) {
+      resolve(window.YT);
+      return;
+    }
+    const prev = window.onYouTubeIframeAPIReady;
+    window.onYouTubeIframeAPIReady = () => {
+      if (typeof prev === 'function') prev();
+      resolve(window.YT);
+    };
+    if (!document.getElementById('youtube-iframe-api')) {
+      const tag = document.createElement('script');
+      tag.id = 'youtube-iframe-api';
+      tag.src = 'https://www.youtube.com/iframe_api';
+      document.head.appendChild(tag);
+    }
+  });
+  return ytApiPromise;
+}
+
+// Clean, deterministic vector cover for each track — keeps scraped/unofficial
+// YouTube thumbnails out of the UI. Stays in the app's blue palette, with a
+// glyph that varies per track so the bar feels alive without photo thumbnails.
+const GP_GLYPHS = ['♪', '♫', '♬', '✦', '✧', '◉'];
+function TrackArt({ seed = '' }) {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
+  const hue   = 198 + (h % 34);          // 198–231 → blues/indigos only
+  const hue2  = hue + 14;
+  const light = 40 + ((h >> 3) % 12);    // 40–51% lightness for subtle variety
+  const glyph = GP_GLYPHS[h % GP_GLYPHS.length];
+  const gid   = `gp-art-${hue}-${light}`;
+  return (
+    <svg className="gp-art-svg" viewBox="0 0 48 48" width="48" height="48" aria-hidden="true">
+      <defs>
+        <linearGradient id={gid} x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor={`hsl(${hue} 55% ${light}%)`} />
+          <stop offset="1" stopColor={`hsl(${hue2} 60% ${Math.max(16, light - 22)}%)`} />
+        </linearGradient>
+      </defs>
+      <rect width="48" height="48" fill={`url(#${gid})`} />
+      <rect width="48" height="48" fill="rgba(0,0,0,0.18)" />
+      <circle cx="24" cy="24" r="11" fill="none" stroke="rgba(220,235,255,0.5)" strokeWidth="0.7" />
+      <circle cx="24" cy="24" r="6"  fill="none" stroke="rgba(220,235,255,0.38)" strokeWidth="0.6" />
+      <text x="24" y="25.5" textAnchor="middle" dominantBaseline="middle"
+        fontFamily="Georgia, serif" fontSize="14" fill="rgba(235,244,255,0.92)">{glyph}</text>
+    </svg>
+  );
+}
+
+export default function GlobalPlayer() {
+  const queue        = usePlayerStore((s) => s.queue);
+  const currentIndex = usePlayerStore((s) => s.currentIndex);
+  const isPlaying    = usePlayerStore((s) => s.isPlaying);
+  const isReady      = usePlayerStore((s) => s.isReady);
+  const minimized    = usePlayerStore((s) => s.minimized);
+  const setReady     = usePlayerStore((s) => s.setReady);
+  const setIsPlaying = usePlayerStore((s) => s.setIsPlaying);
+  const setVideoId   = usePlayerStore((s) => s.setVideoId);
+  const setMinimized = usePlayerStore((s) => s.setMinimized);
+  const next         = usePlayerStore((s) => s.next);
+  const prev         = usePlayerStore((s) => s.prev);
+  const clearQueue   = usePlayerStore((s) => s.clearQueue);
+
+  const hostRef        = useRef(null);   // stable wrapper React owns
+  const playerRef      = useRef(null);   // YT.Player instance
+  const loadedVideoRef = useRef(null);   // videoId currently loaded/cued
+  const skipTimerRef   = useRef(null);   // pending auto-skip timeout
+  const failCountRef   = useRef(0);      // consecutive unplayable tracks (loop guard)
+  const altsRef        = useRef(new Map());  // trackId -> [alternate embeddable videoIds]
+  const triedRef       = useRef(new Map());  // trackId -> Set of videoIds already failed
+  const [status, setStatus] = useState(''); // '', 'resolving', 'unavailable'
+
+  const current =
+    currentIndex >= 0 && currentIndex < queue.length ? queue[currentIndex] : null;
+
+  // A track couldn't be resolved or its video errored. Advance to the next one
+  // so playback keeps flowing — but stop after a full lap so an all-unplayable
+  // queue can't spin forever.
+  const skipUnplayable = useCallback(() => {
+    const st = usePlayerStore.getState();
+    const len = st.queue.length;
+    failCountRef.current += 1;
+    if (len <= 1 || failCountRef.current >= len) {
+      failCountRef.current = 0;
+      setStatus('unavailable');
+      return;
+    }
+    clearTimeout(skipTimerRef.current);
+    skipTimerRef.current = setTimeout(() => next(), 900);
+  }, [next]);
+
+  // A loaded video failed — most often code 150: an upload the API SWEARS is
+  // embeddable but still blocks playback. Before giving up, try OTHER uploads of
+  // the same song: first any alternates we already fetched, then a fresh resolve
+  // that excludes every dead id. Only when those run dry do we skip the track.
+  const handlePlaybackError = useCallback(async () => {
+    const st = usePlayerStore.getState();
+    const cur = st.queue[st.currentIndex];
+    if (!cur) { skipUnplayable(); return; }
+    const tid = cur.id;
+
+    let tried = triedRef.current.get(tid);
+    if (!tried) { tried = new Set(); triedRef.current.set(tid, tried); }
+    if (loadedVideoRef.current) tried.add(loadedVideoRef.current);
+
+    if (tried.size > 5) { skipUnplayable(); return; }   // bound the hunt
+
+    // 1) An alternate upload we already know about — costs no extra quota.
+    const known = (altsRef.current.get(tid) || []).filter((id) => !tried.has(id));
+    if (known.length) { loadedVideoRef.current = null; setVideoId(tid, known[0]); return; }
+
+    // 2) Ask the backend for fresh uploads, excluding the dead ones.
+    try {
+      const appToken = localStorage.getItem('authToken') || '';
+      const exclude = encodeURIComponent(Array.from(tried).join(','));
+      const res = await fetch(
+        `${API_BASE}/api/youtube/resolve?title=${encodeURIComponent(cur.title)}&artist=${encodeURIComponent(cur.artist)}&exclude=${exclude}`,
+        { headers: { 'X-Session-Token': appToken } }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.candidates)) altsRef.current.set(tid, data.candidates);
+        const fresh = (data.candidates || []).filter((id) => !tried.has(id));
+        const pick = (data.videoId && !tried.has(data.videoId)) ? data.videoId : (fresh[0] || null);
+        if (pick) { loadedVideoRef.current = null; setVideoId(tid, pick); return; }
+      }
+    } catch { /* fall through to skip */ }
+
+    skipUnplayable();
+  }, [skipUnplayable, setVideoId]);
+
+  // ── Create the player once ────────────────────────────────────────────────
+  useEffect(() => {
+    let cancelled = false;
+    loadYouTubeAPI().then((YT) => {
+      if (cancelled || playerRef.current || !hostRef.current) return;
+      // Hand the API a throwaway child so it can replace it without fighting React.
+      const mount = document.createElement('div');
+      hostRef.current.appendChild(mount);
+      playerRef.current = new YT.Player(mount, {
+        height: '200',
+        width: '200',
+        playerVars: { autoplay: 0, controls: 1, playsinline: 1, rel: 0, modestbranding: 1 },
+        events: {
+          onReady: () => setReady(true),
+          onStateChange: (e) => {
+            const S = window.YT && window.YT.PlayerState;
+            if (!S) return;
+            if (e.data === S.ENDED) next();
+            else if (e.data === S.PLAYING) { failCountRef.current = 0; setIsPlaying(true); }
+            else if (e.data === S.PAUSED) setIsPlaying(false);
+          },
+          onError: (e) => {
+            // YT error codes: 2 = bad/invalid videoId, 5 = HTML5 player error,
+            // 100 = video not found / private / removed, 101 & 150 = the owner
+            // disabled embedding (official VEVO/label uploads usually do this).
+            const code = e && e.data;
+            const st = usePlayerStore.getState();
+            const cur = st.queue[st.currentIndex];
+            console.warn(
+              `[GlobalPlayer] YouTube onError code=${code} videoId=${loadedVideoRef.current} ` +
+              `("${cur ? cur.title : '?'}" — ${cur ? cur.artist : ''}) — trying another upload`
+            );
+            setStatus('resolving');
+            handlePlaybackError();
+          },
+        },
+      });
+    });
+    return () => { cancelled = true; };
+    // Player is created exactly once; every handler referenced here is stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── Resolve (if needed) + cue/load the current track ──────────────────────
+  const ensureAndLoad = useCallback(async () => {
+    const player = playerRef.current;
+    if (!player || !isReady || !current) return;
+
+    let videoId = current.videoId;
+    if (!videoId) {
+      setStatus('resolving');
+      try {
+        const appToken = localStorage.getItem('authToken') || '';
+        const res = await fetch(
+          `${API_BASE}/api/youtube/resolve?title=${encodeURIComponent(current.title)}&artist=${encodeURIComponent(current.artist)}`,
+          { headers: { 'X-Session-Token': appToken } }
+        );
+        if (res.ok) {
+          const data = await res.json();
+          videoId = data.videoId || null;
+          if (Array.isArray(data.candidates)) altsRef.current.set(current.id, data.candidates);
+          if (videoId) setVideoId(current.id, videoId);
+        }
+      } catch { /* network down, fall through to unavailable */ }
+    }
+
+    if (!videoId) { setStatus('unavailable'); skipUnplayable(); return; }
+    setStatus('');
+
+    if (loadedVideoRef.current !== videoId) {
+      loadedVideoRef.current = videoId;
+      const playing = usePlayerStore.getState().isPlaying;
+      try {
+        if (playing) player.loadVideoById(videoId);   // autoplays (after a gesture)
+        else player.cueVideoById(videoId);            // reload → cued, paused
+      } catch { /* player not ready yet */ }
+    }
+  }, [current, isReady, setVideoId, skipUnplayable]);
+
+  useEffect(() => {
+    clearTimeout(skipTimerRef.current); // drop any stale skip from a prior error
+    ensureAndLoad();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentIndex, isReady, current?.videoId]);
+
+  // ── Keep player play/pause in sync with the store ─────────────────────────
+  useEffect(() => {
+    const player = playerRef.current;
+    if (!player || !isReady || !current) return;
+    try {
+      if (isPlaying) player.playVideo();
+      else player.pauseVideo();
+    } catch { /* ignore */ }
+  }, [isPlaying, isReady, current]);
+
+  // Reserve space at the bottom of scroll areas only while the full bar shows.
+  useEffect(() => {
+    document.body.classList.toggle('has-player', !!current && !minimized);
+    return () => document.body.classList.remove('has-player');
+  }, [current, minimized]);
+
+  // Direct control for the bar's play button, keeps the click close to the
+  // gesture so browsers allow audio to start.
+  const togglePlay = () => {
+    const player = playerRef.current;
+    if (!player || !current) return;
+    if (isPlaying) { try { player.pauseVideo(); } catch {} setIsPlaying(false); }
+    else { try { player.playVideo(); } catch {} setIsPlaying(true); }
+  };
+
+  // Hard stop: actually halt the iframe audio, then clear the queue. (clearQueue
+  // alone left the audio playing because the pause effect bails when current is
+  // null.)
+  const stopPlayback = () => {
+    const player = playerRef.current;
+    try { player && player.stopVideo && player.stopVideo(); } catch { /* ignore */ }
+    loadedVideoRef.current = null;
+    clearQueue();
+  };
+
+  // The iframe is ALWAYS parked off-screen — this is an audio player, the video
+  // is never shown. It must stay rendered (not display:none) so audio survives.
+  const hostClass = 'gp-host ' + (current ? 'gp-host--collapsed' : 'gp-host--idle');
+
+  return (
+    <>
+      {/* The YouTube iframe lives here permanently so audio survives navigation. */}
+      <div className={hostClass} ref={hostRef} aria-hidden="true" />
+
+      {current && !minimized && (
+        <div className="gp-bar" role="region" aria-label="Now playing">
+          <div className="gp-meta">
+            <div className="gp-art">
+              <TrackArt seed={(current.title || '') + '·' + (current.artist || '')} />
+            </div>
+            <div className="gp-text">
+              <span className="gp-title" title={current.title}>{current.title}</span>
+              <span className="gp-artist" title={current.artist}>
+                {status === 'resolving' ? 'finding audio…'
+                  : status === 'unavailable' ? "couldn't load, skipping…"
+                  : current.artist}
+              </span>
+            </div>
+          </div>
+
+          <div className="gp-controls">
+            <button className="gp-ctrl" onClick={prev} title="Previous" aria-label="Previous">⏮</button>
+            <button className="gp-ctrl gp-ctrl--play" onClick={togglePlay}
+              title={isPlaying ? 'Pause' : 'Play'} aria-label={isPlaying ? 'Pause' : 'Play'}>
+              {isPlaying ? '⏸' : '▶'}
+            </button>
+            <button className="gp-ctrl" onClick={next} title="Next" aria-label="Next">⏭</button>
+          </div>
+
+          <div className="gp-right">
+            <button className="gp-mini" onClick={stopPlayback} title="Stop" aria-label="Stop playback">⏹ stop</button>
+            <button className="gp-mini gp-close" onClick={() => setMinimized(true)}
+              title="Minimize" aria-label="Minimize player">✕</button>
+          </div>
+        </div>
+      )}
+
+      {current && minimized && (
+        <button className="gp-pill" onClick={() => setMinimized(false)}
+          title="Show player" aria-label="Show player">
+          <span className="gp-pill-art"><TrackArt seed={(current.title || '') + '·' + (current.artist || '')} /></span>
+          <span className="gp-pill-text">
+            <span className="gp-pill-title">{current.title}</span>
+            <span className="gp-pill-tag">{isPlaying ? 'playing' : 'paused'} · tap to open</span>
+          </span>
+        </button>
+      )}
+    </>
+  );
+}

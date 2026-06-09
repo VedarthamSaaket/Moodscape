@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { FIGURES, ROUND_COUNT, SPECTRUM, repBand } from './quiz/saintOrSinnerData.js';
-import useSaintStore from '../store/saintStore.js';
+import useSaintStore, { vibeScoreOf, vibeRank } from '../store/saintStore.js';
 import './QuizPage.css';        // shared shell + button + intro/progress styles
 import './SaintOrSinner.css';   // game-specific: slider, options, reveal spectrum
 
@@ -37,7 +37,9 @@ function summarise(results) {
 
 // Phases: intro → round (judge → guess → reveal) → summary
 function SaintOrSinnerPage() {
-  const { bestAccuracy, runs, recordRun } = useSaintStore();
+  const { runs, roundsTotal, proximityTotal, guessTotal, recordRun } = useSaintStore();
+  const vibeScore = vibeScoreOf({ roundsTotal, proximityTotal, guessTotal });
+  const rank = vibeRank(vibeScore);
 
   const [phase, setPhase] = useState('intro');
   const [deck, setDeck] = useState([]);
@@ -96,8 +98,8 @@ function SaintOrSinnerPage() {
   const next = () => {
     if (idx >= deck.length - 1) {
       // results state already holds every round (set synchronously in pickGuess).
-      const { accuracy } = summarise(results);
-      recordRun(accuracy);
+      const { accuracy, guesses, total } = summarise(results);
+      recordRun({ accuracy, guesses, total });
       advance(() => setPhase('summary'));
     } else {
       advance(() => {
@@ -112,7 +114,7 @@ function SaintOrSinnerPage() {
   return (
     <div className={`quiz-shell ${fading ? 'fading' : ''}`}>
       {phase === 'intro' && (
-        <Intro onStart={begin} bestAccuracy={bestAccuracy} runs={runs} />
+        <Intro onStart={begin} runs={runs} vibeScore={vibeScore} rank={rank} />
       )}
 
       {phase === 'round' && current && (
@@ -140,14 +142,34 @@ function SaintOrSinnerPage() {
       )}
 
       {phase === 'summary' && (
-        <Summary results={results} onReplay={begin} />
+        <Summary results={results} onReplay={begin} vibeScore={vibeScore} rank={rank} runs={runs} />
       )}
     </div>
   );
 }
 
 // ── sub-views ─────────────────────────────────────────────────────────────────
-function Intro({ onStart, bestAccuracy, runs }) {
+
+// Persistent lifetime meter: how good a "vibe guesser" the player is — i.e. how
+// sharply they read strangers, accumulated across every run.
+function VibeGuesserMeter({ score, rank, runs, variant }) {
+  return (
+    <div className={`sns-vibe${variant ? ` sns-vibe--${variant}` : ''}`} style={{ '--vibe': `${score}%` }}>
+      <div className="sns-vibe-head">
+        <span className="sns-vibe-label">Vibe Guesser</span>
+        <span className="sns-vibe-value"><strong>{score}</strong> · {rank.label}</span>
+      </div>
+      <div className="sns-vibe-track">
+        <div className="sns-vibe-fill" style={{ width: `${score}%` }} />
+      </div>
+      <p className="sns-vibe-sub">
+        how sharply you read people — across {runs} {runs === 1 ? 'round' : 'rounds'}
+      </p>
+    </div>
+  );
+}
+
+function Intro({ onStart, runs, vibeScore, rank }) {
   return (
     <div className="quiz-intro">
       <div className="quiz-intro-eyebrow">A blind game of reputation</div>
@@ -159,11 +181,7 @@ function Intro({ onStart, bestAccuracy, runs }) {
         reviled to revered, <em>before</em> you know who it is. Then guess the name,
         and see how the world really judges them.
       </p>
-      {runs > 0 && (
-        <p className="sns-best">
-          Best read: <span>{bestAccuracy}%</span> · {runs} {runs === 1 ? 'round' : 'rounds'} played
-        </p>
-      )}
+      {runs > 0 && <VibeGuesserMeter score={vibeScore} rank={rank} runs={runs} />}
       <div className="quiz-intro-actions">
         <button className="quiz-btn-primary" onClick={onStart}>
           {runs > 0 ? 'Play again' : 'Take the stand'}
@@ -323,7 +341,7 @@ function SpectrumBar({ you, world, worldColor }) {
   );
 }
 
-function Summary({ results, onReplay }) {
+function Summary({ results, onReplay, vibeScore, rank, runs }) {
   const { accuracy, guesses, total, read, lean } = summarise(results);
   return (
     <div className="quiz-result">
@@ -341,6 +359,8 @@ function Summary({ results, onReplay }) {
           <span className="sns-score-label">Names guessed</span>
         </div>
       </div>
+
+      <VibeGuesserMeter score={vibeScore} rank={rank} runs={runs} variant="summary" />
 
       <ul className="sns-recap">
         {results.map((r) => {

@@ -15,7 +15,7 @@ c = c.replace(
 );
 c = c.replace(
   'e.g. calm, nostalgic, like driving at 2am with the windows down…',
-  'e.g. I\'m feeling calm and a little nostalgic — just need something for a late night drive'
+  'e.g. I\'m feeling calm and a little nostalgic, just need something for a late night drive'
 );
 
 // 2. Remove the entire "Playlist intent" field block
@@ -33,11 +33,11 @@ c = c.replace(
   'Select a film industry to include soundtrack songs matched to your mood.'
 );
 
-// 5. Update the body sent to API — use combined mood+intent splitting, remove old playlistIntent state reference
+// 5. Update the body sent to API, use combined mood+intent splitting, remove old playlistIntent state reference
 // First fix: add intent splitting before the body
 c = c.replace(
   '      const body = {\r\n        moodText: moodText.trim(),\r\n        playlistName: playlistName.trim() || \'Vædarth AI Playlist\',\r\n        trackCountRange,\r\n        playlistIntent: playlistIntent.trim() || null,\r\n        filmIndustry: filmIndustry || null,\r\n        movieName: movieName.trim() || null,',
-  '      const moodWithIntent = moodText.trim();\r\n      const intentPart = moodWithIntent.includes(\' — \') ? moodWithIntent.split(\' — \')[1] : \'\';\r\n\r\n      const body = {\r\n        moodText: moodWithIntent.split(\' — \')[0] || moodWithIntent,\r\n        playlistName: playlistName.trim() || \'MoodScape AI Playlist\',\r\n        trackCountRange,\r\n        playlistIntent: intentPart || null,\r\n        filmIndustry: filmIndustry || null,\r\n        movieName: null,'
+  '      const moodWithIntent = moodText.trim();\r\n      const intentPart = moodWithIntent.includes(\', \') ? moodWithIntent.split(\', \')[1] : \'\';\r\n\r\n      const body = {\r\n        moodText: moodWithIntent.split(\', \')[0] || moodWithIntent,\r\n        playlistName: playlistName.trim() || \'MoodScape AI Playlist\',\r\n        trackCountRange,\r\n        playlistIntent: intentPart || null,\r\n        filmIndustry: filmIndustry || null,\r\n        movieName: null,'
 );
 
 // 6. Add token cleanup guards for stale undefined values
