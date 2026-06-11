@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import { FIGURES, ROUND_COUNT, SPECTRUM, repBand } from './quiz/saintOrSinnerData.js';
 import useSaintStore, { vibeScoreOf, vibeRank } from '../store/saintStore.js';
 import './QuizPage.css';        // shared shell + button + intro/progress styles
@@ -20,7 +20,6 @@ function summarise(results) {
   const n = results.length || 1;
   const accuracy = Math.round(results.reduce((s, r) => s + proximity(r.user, r.reputation), 0) / n);
   const bias = Math.round(results.reduce((s, r) => s + (r.user - r.reputation), 0) / n);
-  const guesses = results.filter((r) => r.correctGuess).length;
 
   let read;
   if (accuracy >= 80) read = 'In tune with the world';
@@ -32,7 +31,7 @@ function summarise(results) {
   else if (bias < -12) lean = 'You judge harsher than the public, a tough jury.';
   else lean = 'And you call it almost exactly down the middle.';
 
-  return { accuracy, bias, guesses, total: results.length, read, lean };
+  return { accuracy, bias, total: results.length, read, lean };
 }
 
 // Phases: intro → round (judge → guess → reveal) → summary
@@ -46,17 +45,10 @@ function SaintOrSinnerPage() {
   const [idx, setIdx] = useState(0);
   const [step, setStep] = useState('judge');
   const [value, setValue] = useState(50);
-  const [guess, setGuess] = useState(null);
   const [results, setResults] = useState([]);
   const [fading, setFading] = useState(false);
 
   const current = deck[idx] || null;
-
-  // Shuffle the 3 candidate names once per figure so the answer's slot varies.
-  const options = useMemo(
-    () => (current ? shuffle(current.options) : []),
-    [current?.id], // eslint-disable-line react-hooks/exhaustive-deps
-  );
 
   // Short cross-fade between steps, matching the rest of the app.
   const advance = (fn) => {
@@ -72,16 +64,12 @@ function SaintOrSinnerPage() {
     setIdx(0);
     setStep('judge');
     setValue(50);
-    setGuess(null);
     setResults([]);
     advance(() => setPhase('round'));
   };
 
-  const lockVerdict = () => advance(() => setStep('guess'));
-
-  const pickGuess = (name) => {
+  const lockVerdict = () => {
     if (!current) return;
-    setGuess(name);
     setResults((rs) => [
       ...rs,
       {
@@ -89,7 +77,6 @@ function SaintOrSinnerPage() {
         name: current.name,
         user: value,
         reputation: current.reputation,
-        correctGuess: name === current.name,
       },
     ]);
     advance(() => setStep('reveal'));
@@ -97,16 +84,14 @@ function SaintOrSinnerPage() {
 
   const next = () => {
     if (idx >= deck.length - 1) {
-      // results state already holds every round (set synchronously in pickGuess).
-      const { accuracy, guesses, total } = summarise(results);
-      recordRun({ accuracy, guesses, total });
+      const { accuracy, total } = summarise(results);
+      recordRun({ accuracy, guesses: 0, total });
       advance(() => setPhase('summary'));
     } else {
       advance(() => {
         setIdx((i) => i + 1);
         setStep('judge');
         setValue(50);
-        setGuess(null);
       });
     }
   };
@@ -125,15 +110,10 @@ function SaintOrSinnerPage() {
             <JudgeStep figure={current} value={value} onChange={setValue} onLock={lockVerdict} />
           )}
 
-          {step === 'guess' && (
-            <GuessStep figure={current} options={options} onPick={pickGuess} />
-          )}
-
           {step === 'reveal' && (
             <RevealStep
               figure={current}
               value={value}
-              guess={guess}
               isLast={idx >= deck.length - 1}
               onNext={next}
             />
@@ -178,8 +158,8 @@ function Intro({ onStart, runs, vibeScore, rank }) {
       </h1>
       <p className="quiz-intro-body">
         A few cryptic facts. One stranger. You decide where they fall, from
-        reviled to revered, <em>before</em> you know who it is. Then guess the name,
-        and see how the world really judges them.
+        reviled to revered, <em>before</em> you know who it is. Then see how
+        the world really judges them.
       </p>
       {runs > 0 && <VibeGuesserMeter score={vibeScore} rank={rank} runs={runs} />}
       <div className="quiz-intro-actions">
@@ -243,39 +223,9 @@ function JudgeStep({ figure, value, onChange, onLock }) {
   );
 }
 
-function GuessStep({ figure, options, onPick }) {
-  return (
-    <div className="sns-round">
-      <h2 className="sns-prompt">Now, who do you think it was?</h2>
-      <p className="sns-caption">One of these three. Trust your gut.</p>
-
-      <ul className="sns-traits sns-traits-compact">
-        {figure.traits.map((t, i) => (
-          <li key={i} className="sns-trait">{t}</li>
-        ))}
-      </ul>
-
-      <div className="sns-options">
-        {options.map((name, i) => (
-          <button
-            key={name}
-            type="button"
-            className="sns-option"
-            style={{ '--i': i }}
-            onClick={() => onPick(name)}
-          >
-            {name}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function RevealStep({ figure, value, guess, isLast, onNext }) {
+function RevealStep({ figure, value, isLast, onNext }) {
   const worldBand = repBand(figure.reputation);
   const gap = Math.abs(value - figure.reputation);
-  const guessRight = guess === figure.name;
 
   let verdictLine;
   if (gap <= 8) verdictLine = 'Almost exactly how the world sees them.';
@@ -284,7 +234,7 @@ function RevealStep({ figure, value, guess, isLast, onNext }) {
 
   return (
     <div className="sns-reveal">
-      <div className="sns-reveal-eyebrow">{figure.era} · {guessRight ? 'You named them' : 'Not quite'}</div>
+      <div className="sns-reveal-eyebrow">{figure.era}</div>
       <h1 className="sns-reveal-name">{figure.name}</h1>
 
       <div className="sns-chip" style={{ '--chip': worldBand.color }}>
@@ -293,12 +243,6 @@ function RevealStep({ figure, value, guess, isLast, onNext }) {
 
       <SpectrumBar you={value} world={figure.reputation} worldColor={worldBand.color} />
       <p className="sns-gap-line">{verdictLine}</p>
-
-      <p className="sns-guess-line" data-right={guessRight ? 'yes' : 'no'}>
-        {guessRight
-          ? `✓ Right, you knew it was ${figure.name}.`
-          : `✗ You guessed ${guess}.`}
-      </p>
 
       <p className="sns-reveal-blurb">{figure.reveal}</p>
 
@@ -342,7 +286,7 @@ function SpectrumBar({ you, world, worldColor }) {
 }
 
 function Summary({ results, onReplay, vibeScore, rank, runs }) {
-  const { accuracy, guesses, total, read, lean } = summarise(results);
+  const { accuracy, total, read, lean } = summarise(results);
   return (
     <div className="quiz-result">
       <div className="quiz-result-eyebrow">The verdict on your judgement</div>
@@ -355,8 +299,8 @@ function Summary({ results, onReplay, vibeScore, rank, runs }) {
           <span className="sns-score-label">Read the room</span>
         </div>
         <div className="sns-score">
-          <span className="sns-score-num">{guesses}/{total}</span>
-          <span className="sns-score-label">Names guessed</span>
+          <span className="sns-score-num">{total}</span>
+          <span className="sns-score-label">Strangers judged</span>
         </div>
       </div>
 
@@ -371,9 +315,6 @@ function Summary({ results, onReplay, vibeScore, rank, runs }) {
               <span className="sns-recap-nums">
                 you {r.user} · world {r.reputation}
                 <span className="sns-recap-gap" data-close={g <= 10 ? 'yes' : 'no'}>±{g}</span>
-                <span className="sns-recap-guess" data-right={r.correctGuess ? 'yes' : 'no'}>
-                  {r.correctGuess ? '✓' : '✗'}
-                </span>
               </span>
             </li>
           );

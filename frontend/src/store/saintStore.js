@@ -19,11 +19,9 @@ const authHeaders = () => {
 // The Vibe Guesser score (0..100): mostly how closely your blind verdicts track
 // the world's (reading the room from traits alone), with a lighter weight on
 // actually naming the figure. It's the "how well you read people" number.
-export function vibeScoreOf({ roundsTotal = 0, proximityTotal = 0, guessTotal = 0 } = {}) {
+export function vibeScoreOf({ roundsTotal = 0, proximityTotal = 0 } = {}) {
   if (!roundsTotal) return 0;
-  const readAccuracy = proximityTotal / roundsTotal;        // 0..100
-  const guessRate    = (guessTotal / roundsTotal) * 100;    // 0..100
-  return Math.round(readAccuracy * 0.8 + guessRate * 0.2);
+  return Math.round(proximityTotal / roundsTotal);
 }
 
 // Gen-Z flavoured rank that maps to psychological sharpness. Thresholds are
