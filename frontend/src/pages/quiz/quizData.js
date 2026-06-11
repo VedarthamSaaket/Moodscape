@@ -109,7 +109,7 @@ export const ARCHETYPES = [
     name: 'Normal',
     centroid: { temp: 0, edge: 0, era: 0, density: 0 },
     accent: { from: '#7a8fa6', to: '#d4dce4' },
-    blurb: 'Good coffee, clean playlists, a crowd-favourite chorus you're not embarrassed to love.',
+    blurb: "Good coffee, clean playlists, a crowd-favourite chorus you’re not embarrassed to love.",
     vibePrompt:
       'Friday-night radio, a well-lit room, friends singing along to a song everyone knows, easy warmth, no pretence.',
     genreSeed:    ['Pop', 'Hip-Hop / Rap', 'R&B'],

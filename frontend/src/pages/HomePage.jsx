@@ -146,9 +146,9 @@ function Ticker({ rev = false }) {
 }
 
 const STEPS = [
-  { num: '01', label: 'Input', title: 'Write the feeling', body: 'A sentence. A fragment. A memory half-formed. No genre names, no tempo preferences. Just the texture of the moment you are in, as honestly as you can put it.' },
+  { num: '01', label: 'Input', title: 'Write the feeling', body: 'A sentence. A fragment. A memory half-formed. No tempo preferences, no technical knowledge. Just the texture of the moment you are in, as honestly as you can put it.' },
   { num: '02', label: 'Process', title: 'The AI reads between the lines', body: 'Not keywords. The emotional weight of your words, the pace of your sentences, the atmosphere underneath the literal meaning. It maps the feeling to sound.' },
-  { num: '03', label: 'Output', title: 'Your soundtrack arrives', body: 'A Spotify playlist built in seconds, dropped straight into your library, ready on every device. No genre filters, no star ratings, nothing to configure.' },
+  { num: '03', label: 'Output', title: 'Your soundtrack arrives', body: 'A Spotify playlist built in seconds, dropped straight into your library, ready on every device. Steer by genre if you want, or let the AI decide.' },
 ];
 
 const FEATURES = [
@@ -157,19 +157,18 @@ const FEATURES = [
   { n: '03', title: 'Precision matching', sub: 'nuance, not keywords', body: 'Metaphor, emotional layering, atmospheric subtext. Not just what you say but how you say it.' },
   { n: '04', title: 'Native Spotify sync', sub: 'no extra steps', body: 'Playlists land directly in your Spotify library, ready on every device you own.' },
   { n: '05', title: 'Context-aware', sub: 'time, place, energy', body: 'Time of day, setting, the energy in your writing. All read, all factored into what you hear.' },
-  { n: '06', title: 'No music knowledge needed', sub: 'just honest words', body: 'You don\'t need to know a key signature from a tempo. You just need to know how you feel.' },
+  { n: '06', title: 'Genre-optional', sub: 'steer if you want to', body: 'Pick a genre to guide the results, or leave it open and let the AI decide. Your call, always.' },
 ];
 
 const PLAYLISTS = [
-  { gradient: 'linear-gradient(145deg,#0e1428 0%,#1a1f3a 45%,#0a0f22 100%)', accent: '#4a6fa5', mood: 'melancholic, rainy afternoon', name: 'Glass and Rain', desc: 'Watching rain from a cafe window, coffee going cold', tracks: ['Nuvole Bianche', 'Motion Picture Soundtrack', 'Holocene'], artists: ['Einaudi', 'Radiohead', 'Bon Iver'], bpm: '72 BPM', key: 'C min' },
-  { gradient: 'linear-gradient(145deg,#0a1208 0%,#1a2a14 45%,#0c1810 100%)', accent: '#4a8a5a', mood: 'focused, deep work', name: 'Forest Protocol', desc: 'That zone where hours disappear and only the work exists', tracks: ['Comptine', 'Experience', 'Re: Stacks'], artists: ['Tiersen', 'Einaudi', 'Bon Iver'], bpm: '84 BPM', key: 'G maj' },
-  { gradient: 'linear-gradient(145deg,#18101e 0%,#2a1a2e 45%,#120c18 100%)', accent: '#7a5a9a', mood: 'nostalgic, late night', name: 'City After Midnight', desc: 'Driving alone at 2am, nowhere specific to be', tracks: ['The Night Will Always Win', 'Motion', 'Drive'], artists: ['Manch. Orch.', 'Tourist', 'Vallis Alps'], bpm: '96 BPM', key: 'A min' },
+  { gradient: 'linear-gradient(145deg,#0a0c12 0%,#141822 45%,#0c0e16 100%)', accent: '#8a9eb4', mood: 'melancholic, rainy afternoon', name: 'Glass and Rain', desc: 'Watching rain from a cafe window, coffee going cold', tracks: ['Nuvole Bianche', 'Motion Picture Soundtrack', 'Holocene'], artists: ['Einaudi', 'Radiohead', 'Bon Iver'], bpm: '72 BPM', key: 'C min' },
+  { gradient: 'linear-gradient(145deg,#0c0e14 0%,#16191f 45%,#0a0c10 100%)', accent: '#9aacbc', mood: 'focused, deep work', name: 'Forest Protocol', desc: 'That zone where hours disappear and only the work exists', tracks: ['Comptine', 'Experience', 'Re: Stacks'], artists: ['Tiersen', 'Einaudi', 'Bon Iver'], bpm: '84 BPM', key: 'G maj' },
+  { gradient: 'linear-gradient(145deg,#0e1018 0%,#181c26 45%,#0a0e14 100%)', accent: '#a0b0c4', mood: 'nostalgic, late night', name: 'City After Midnight', desc: 'Driving alone at 2am, nowhere specific to be', tracks: ['The Night Will Always Win', 'Motion', 'Drive'], artists: ['Manch. Orch.', 'Tourist', 'Vallis Alps'], bpm: '96 BPM', key: 'A min' },
 ];
 
-const TESTIMONIALS = [
-  { quote: 'I typed "sitting at my grandmother\'s piano after she passed" and it gave me exactly what I didn\'t know I needed.', name: 'Aria S.', handle: '@ariasthoughts', city: 'London' },
-  { quote: 'As someone who thinks in feelings rather than genre names, this is the first music app that actually makes sense to me.', name: 'Dev M.', handle: '@devlistens', city: 'Berlin' },
-  { quote: 'Described a Sunday morning with fog outside and nowhere to be. The playlist was so good I didn\'t move for two hours.', name: 'Zoe K.', handle: '@zoesundays', city: 'Toronto' },
+const GAMES = [
+  { tag: 'Quiz', title: 'Find your archetype', body: 'Ten questions. No right answers. A style profile mapped to your taste across warmth, edge, era and density, with a playlist that fits.', link: '/quiz' },
+  { tag: 'Game', title: 'Saint or Sinner?', body: 'Read cryptic traits about a real person. Slide your verdict before the reveal. How sharply do you actually read people?', link: '/quiz/saint-or-sinner' },
 ];
 
 export default function HomePage() {
@@ -309,7 +308,7 @@ export default function HomePage() {
 
           {/* Stat strip */}
           <div style={{ marginTop: '48px', display: 'flex', gap: '0', border: '1px solid rgba(154,184,204,0.09)', animation: 'heroIn 1.0s cubic-bezier(0.16,1,0.3,1) 0.65s both' }}>
-            {[['Type a Feeling', 'AI Playlists'], ['Drag & Drop', 'Moodboards'], ['Native', 'Spotify Sync']].map(([a, b], i) => (
+            {[['Type a Feeling', 'AI Playlists'], ['Drag & Drop', 'Moodboards'], ['Style Quiz', 'Find Your Archetype'], ['Native', 'Spotify Sync']].map(([a, b], i) => (
               <div key={i} style={{ padding: '14px 26px', borderLeft: i > 0 ? '1px solid rgba(154,184,204,0.09)' : 'none', textAlign: 'center' }}>
                 <div style={{ fontFamily: 'var(--font-display)', fontSize: '0.80rem', fontWeight: 700, color: 'rgba(194,217,232,0.78)', letterSpacing: '0.04em' }}>{a}</div>
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.44rem', letterSpacing: '0.22em', textTransform: 'uppercase', color: 'rgba(154,184,204,0.28)', marginTop: '3px' }}>{b}</div>
@@ -339,15 +338,15 @@ export default function HomePage() {
                 <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.48rem', letterSpacing: '0.28em', textTransform: 'uppercase', color: 'rgba(154,184,204,0.48)', display: 'block', marginBottom: '16px' }}>Manifesto</span>
                 <div style={{ width: '1px', height: '68px', background: 'linear-gradient(180deg, rgba(154,184,204,0.38), rgba(154,184,204,0.04))' }} />
                 <div style={{ marginTop: '14px', fontFamily: 'var(--font-mono)', fontSize: '0.44rem', letterSpacing: '0.20em', textTransform: 'uppercase', color: 'rgba(154,184,204,0.22)', lineHeight: 2.2 }}>
-                  <div>Emotion</div><div>Frequency</div><div>Moodboards</div>
+                  <div>Emotion</div><div>Frequency</div><div>Moodboards</div><div>Archetypes</div>
                 </div>
               </div>
               <div>
                 <p style={{ fontFamily: 'var(--font-editorial)', fontSize: 'clamp(1.22rem,2.5vw,1.80rem)', fontWeight: 300, fontStyle: 'italic', lineHeight: 1.58, color: 'rgba(220,234,248,0.78)', letterSpacing: '0.01em', marginBottom: '30px' }}>
-                  Most music apps ask what genre you want. MoodScape asks how you feel. Write freely, a feeling, a scene, a memory half-formed, and the AI maps the emotional texture of your words to a Spotify playlist, assembled in seconds.
+                  Most music apps ask what genre you want. MoodScape asks how you feel. Write freely, a feeling, a scene, a memory half-formed, and the AI maps the emotional texture of your words to a Spotify playlist. Build moodboards, take the style quiz, judge strangers blind.
                 </p>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0', borderTop: '1px solid rgba(154,184,204,0.12)', paddingTop: '22px' }}>
-                  {['No genres required', 'No star ratings', 'No filters needed', 'Just honest words'].map((t, i) => (
+                  {['Emotion-first search', 'No star ratings', 'Genre-aware, not genre-bound', 'Just honest words'].map((t, i) => (
                     <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 0', borderBottom: i < 2 ? '1px solid rgba(154,184,204,0.07)' : 'none', borderRight: i % 2 === 0 ? '1px solid rgba(154,184,204,0.07)' : 'none', paddingRight: i % 2 === 0 ? '18px' : '0', paddingLeft: i % 2 === 1 ? '18px' : '0' }}>
                       <div style={{ width: '4px', height: '4px', background: 'rgba(194,217,232,0.50)', flexShrink: 0 }} />
                       <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.60rem', letterSpacing: '0.12em', color: 'rgba(154,184,204,0.42)' }}>{t}</span>
@@ -525,10 +524,17 @@ export default function HomePage() {
                   style={{ background: '#060912', border: `1px solid ${hovPl === i ? 'rgba(154,184,204,0.24)' : 'rgba(154,184,204,0.07)'}`, display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
                   <div style={{ height: '128px', background: pl.gradient, position: 'relative', overflow: 'hidden' }}>
                     <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(135deg,rgba(255,255,255,0.04) 0%,transparent 52%)' }} />
-                    <div style={{ position: 'absolute', top: '-28px', right: '-28px', width: '108px', height: '108px', borderRadius: '50%', border: `1px solid ${pl.accent}28`, opacity: 0.55 }}>
-                      <div style={{ position: 'absolute', inset: '26%', borderRadius: '50%', border: `1px solid ${pl.accent}22` }} />
-                      <div style={{ position: 'absolute', inset: '46%', borderRadius: '50%', background: `${pl.accent}28` }} />
-                    </div>
+                    <svg style={{ position: 'absolute', top: '-12px', right: '-8px', opacity: 0.18 }} width="100" height="100" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M50 4 L68 50 L50 96 L32 50 Z" stroke={pl.accent} strokeWidth="0.8" fill="none" />
+                      <path d="M50 22 L60 50 L50 78 L40 50 Z" stroke={pl.accent} strokeWidth="0.5" fill="none" />
+                      <path d="M50 36 L54 50 L50 64 L46 50 Z" fill={pl.accent} fillOpacity="0.12" />
+                    </svg>
+                    <svg style={{ position: 'absolute', bottom: '18px', right: '42px', opacity: 0.10 }} width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M14 2 L20 14 L14 26 L8 14 Z" stroke={pl.accent} strokeWidth="0.6" fill="none" />
+                    </svg>
+                    <svg style={{ position: 'absolute', top: '22px', right: '90px', opacity: 0.08 }} width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M8 1 L11 8 L8 15 L5 8 Z" fill={pl.accent} fillOpacity="0.18" />
+                    </svg>
                     <div style={{ position: 'absolute', top: '10px', left: '12px', display: 'flex', gap: '4px' }}>
                       {[pl.bpm, pl.key].map((tag, ti) => (
                         <span key={ti} style={{ fontFamily: 'var(--font-mono)', fontSize: '0.40rem', letterSpacing: '0.16em', padding: '3px 7px', background: 'rgba(0,0,0,0.52)', border: `1px solid ${pl.accent}28`, color: `${pl.accent}90` }}>{tag}</span>
@@ -561,40 +567,37 @@ export default function HomePage() {
 
         <div className="section-rule" />
 
-        {/* ── TESTIMONIALS ── */}
+        {/* ── GAMES ── */}
         <section style={{ maxWidth: '1000px', margin: '0 auto', padding: '100px 52px', position: 'relative' }}>
           <GhostNum n="05" top="36px" left="-8px" opacity={0.16} />
           <Reveal>
             <div style={{ marginBottom: '58px' }}>
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.48rem', letterSpacing: '0.28em', textTransform: 'uppercase', color: 'rgba(154,184,204,0.48)', display: 'block', marginBottom: '14px' }}>Heard from</span>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.48rem', letterSpacing: '0.28em', textTransform: 'uppercase', color: 'rgba(154,184,204,0.48)', display: 'block', marginBottom: '14px' }}>Play</span>
               <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(2.1rem,4.8vw,3.5rem)', fontWeight: 700, fontStyle: 'italic', lineHeight: 1.06, margin: 0 }}>
-                Felt by<br />
-                <span style={{ background: 'linear-gradient(90deg, rgba(194,217,232,0.95), rgba(184,198,224,0.80))', WebkitBackgroundClip: 'text', backgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>real listeners</span>
+                Beyond the<br />
+                <span style={{ background: 'linear-gradient(90deg, rgba(194,217,232,0.95), rgba(184,198,224,0.80))', WebkitBackgroundClip: 'text', backgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>playlist</span>
               </h2>
             </div>
           </Reveal>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1px', background: 'rgba(154,184,204,0.05)' }}>
-            {TESTIMONIALS.map((t, i) => (
-              <div key={i} style={{ opacity: 0, transform: 'translateY(20px)', animation: `cardIn 0.80s cubic-bezier(0.16,1,0.3,1) ${i * 100 + 120}ms forwards` }}>
-                <div className="t-card" style={{ padding: '38px 30px', background: '#02040b', display: 'flex', flexDirection: 'column', gap: '22px', height: '100%', position: 'relative', overflow: 'hidden' }}>
-                  <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '1px', background: 'linear-gradient(90deg,rgba(194,217,232,0.22),transparent)' }} />
-                  <div>
-                    {/* Bold silver quote mark */}
-                    <span style={{ fontFamily: 'var(--font-display)', fontSize: '3.8rem', fontWeight: 900, fontStyle: 'italic', lineHeight: 0.70, color: 'rgba(194,217,232,0.14)', display: 'block', marginBottom: '12px' }}>"</span>
-                    <p style={{ fontFamily: 'var(--font-editorial)', fontSize: '0.97rem', fontWeight: 300, fontStyle: 'italic', color: 'rgba(220,234,248,0.74)', lineHeight: 1.74, letterSpacing: '0.01em' }}>{t.quote}</p>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1px', background: 'rgba(154,184,204,0.055)' }}>
+            {GAMES.map((g, i) => (
+              <Reveal key={i} delay={i * 80}>
+                <div className="feat-tile" style={{ padding: '44px 36px', background: '#02040b', position: 'relative', overflow: 'hidden', height: '100%', display: 'flex', flexDirection: 'column' }}>
+                  <div style={{ position: 'absolute', top: 0, left: 0, width: '2px', height: '100%', background: 'linear-gradient(180deg, rgba(194,217,232,0.40), rgba(184,198,224,0.06))' }} />
+                  <svg style={{ position: 'absolute', bottom: '-6px', right: '-4px', opacity: 0.06 }} width="110" height="110" viewBox="0 0 110 110" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M55 4 L76 55 L55 106 L34 55 Z" stroke="rgba(194,217,232,1)" strokeWidth="0.8" fill="none" />
+                    <path d="M55 28 L64 55 L55 82 L46 55 Z" stroke="rgba(194,217,232,1)" strokeWidth="0.5" fill="none" />
+                  </svg>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '18px' }}>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.46rem', letterSpacing: '0.22em', textTransform: 'uppercase', color: 'rgba(154,184,204,0.40)', border: '1px solid rgba(154,184,204,0.16)', padding: '4px 9px' }}>{g.tag}</span>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: '16px', borderTop: '1px solid rgba(154,184,204,0.08)', marginTop: 'auto' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                      <div style={{ width: '24px', height: '24px', borderRadius: '50%', background: 'rgba(154,184,204,0.06)', border: '1px solid rgba(154,184,204,0.18)', flexShrink: 0 }} />
-                      <div>
-                        <div style={{ fontFamily: 'var(--font-display)', fontSize: '0.73rem', fontWeight: 600, color: 'var(--text)', letterSpacing: '0.02em' }}>{t.name}</div>
-                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.50rem', color: 'var(--text-3)', letterSpacing: '0.06em' }}>{t.handle}</div>
-                      </div>
-                    </div>
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.44rem', letterSpacing: '0.18em', textTransform: 'uppercase', color: 'rgba(154,184,204,0.20)' }}>{t.city}</span>
+                  <h4 style={{ fontFamily: 'var(--font-display)', fontSize: '1.4rem', fontWeight: 700, fontStyle: 'italic', color: 'rgba(220,234,248,0.92)', marginBottom: '12px', lineHeight: 1.18, position: 'relative', zIndex: 1 }}>{g.title}</h4>
+                  <p style={{ fontFamily: 'var(--font-mono)', fontSize: '0.66rem', fontWeight: 300, color: 'var(--text-2)', lineHeight: 1.80, marginBottom: '22px', position: 'relative', zIndex: 1 }}>{g.body}</p>
+                  <div style={{ marginTop: 'auto', position: 'relative', zIndex: 1 }}>
+                    <Link to={g.link} className="btn-ghost" style={{ fontSize: '0.58rem' }}>Play</Link>
                   </div>
                 </div>
-              </div>
+              </Reveal>
             ))}
           </div>
         </section>
@@ -611,7 +614,7 @@ export default function HomePage() {
             </h2>
             <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '36px', position: 'relative', zIndex: 1 }}>
               <div style={{ height: '1px', width: '34px', background: 'linear-gradient(90deg,transparent,rgba(154,184,204,0.28))' }} />
-              <p style={{ fontFamily: 'var(--font-editorial)', fontSize: '0.90rem', fontWeight: 300, fontStyle: 'italic', color: 'var(--text-2)', letterSpacing: '0.14em', margin: 0 }}>No genres required. Just tell us how you feel.</p>
+              <p style={{ fontFamily: 'var(--font-editorial)', fontSize: '0.90rem', fontWeight: 300, fontStyle: 'italic', color: 'var(--text-2)', letterSpacing: '0.14em', margin: 0 }}>Start with a feeling. The music follows.</p>
               <div style={{ height: '1px', width: '34px', background: 'linear-gradient(90deg,rgba(154,184,204,0.28),transparent)' }} />
             </div>
             <div style={{ display: 'flex', gap: '10px', position: 'relative', zIndex: 1 }}>

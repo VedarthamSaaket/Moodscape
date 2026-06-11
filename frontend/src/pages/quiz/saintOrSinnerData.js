@@ -152,7 +152,7 @@ export const FIGURES = [
     reveal: 'King Leopold II, his Congo Free State is among history’s deadliest atrocities, still shockingly absent from many classrooms.',
   },
   {
-    id: ‘musk’,
+    id: 'musk',
     name: 'Elon Musk',
     era: 'Modern',
     traits: [
