@@ -14,78 +14,124 @@
 */
 .sns-postit {
   position: fixed;
-  top: 130px;
-  left: 26px;
-  width: 178px;
-  padding: 18px 16px 16px;
-  background:
-    linear-gradient(165deg, #f8ec9d 0%, #f0d56b 100%);
-  color: #2a200a;
+  top: 134px;
+  left: 30px;
+  width: 200px;
+  padding: 20px 18px 18px;
+  /* Frosted blue-slate card matching the M&M palette — sits a half-shade
+     above the page background, lifted by a soft border and drop shadow so
+     it reads as "pinned to the wall" without going chameleon. */
+  background: linear-gradient(
+    165deg,
+    rgba(22, 30, 46, 0.94) 0%,
+    rgba(14, 20, 32, 0.94) 100%
+  );
+  color: var(--parch, #dce8f0);
   font-family: var(--font-body);
-  border-radius: 2px;
+  border: 1px solid rgba(154, 184, 204, 0.32);
+  border-radius: 6px;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
   box-shadow:
-    0 16px 32px rgba(0, 0, 0, 0.55),
-    0 3px 6px rgba(0, 0, 0, 0.40),
-    inset 0 0 36px rgba(255, 255, 255, 0.18);
-  transform: rotate(-3.5deg);
-  transform-origin: top center;
+    0 18px 38px rgba(0, 0, 0, 0.55),
+    0 3px 8px rgba(0, 0, 0, 0.42),
+    inset 0 1px 0 rgba(194, 217, 232, 0.10);
+  /* Straight, not rotated — per spec. */
+  transform: none;
   z-index: 4;
   pointer-events: none;
   user-select: none;
+  animation: cardIn 0.6s var(--ease, cubic-bezier(0.16, 1, 0.3, 1)) both;
 }
 
 .sns-postit-tape {
   position: absolute;
-  top: -12px;
+  top: -10px;
   left: 50%;
-  transform: translateX(-50%) rotate(-2deg);
-  width: 70px;
-  height: 18px;
-  background: rgba(255, 255, 255, 0.32);
-  border: 1px solid rgba(255, 255, 255, 0.55);
-  border-radius: 1px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  transform: translateX(-50%);
+  width: 64px;
+  height: 14px;
+  background: linear-gradient(
+    180deg,
+    rgba(194, 217, 232, 0.28),
+    rgba(154, 184, 204, 0.18)
+  );
+  border: 1px solid rgba(194, 217, 232, 0.35);
+  border-radius: 2px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
 }
 
 .sns-postit-eyebrow {
   font-family: var(--font-mono);
-  font-size: 0.56rem;
-  letter-spacing: 0.18em;
+  font-size: 0.58rem;
+  letter-spacing: 0.22em;
   text-transform: uppercase;
-  color: rgba(42, 32, 10, 0.72);
-  margin-bottom: 6px;
+  color: rgba(194, 217, 232, 0.72);
+  margin-bottom: 8px;
 }
 
 .sns-postit-num {
   font-family: var(--font-display);
-  font-weight: 700;
+  font-weight: 600;
   font-size: 2.6rem;
   line-height: 1;
-  color: #1a1208;
+  color: var(--parch, #dce8f0);
+  letter-spacing: -0.01em;
 }
 
 .sns-postit-pct {
-  font-size: 1.2rem;
-  font-weight: 500;
+  font-size: 1.1rem;
+  font-weight: 400;
   margin-left: 2px;
-  color: rgba(42, 32, 10, 0.65);
+  color: rgba(220, 232, 240, 0.55);
 }
 
 .sns-postit-sub {
-  font-size: 0.78rem;
+  font-family: var(--font-display);
   font-style: italic;
-  color: rgba(42, 32, 10, 0.78);
-  margin: 2px 0 10px;
+  font-size: 0.86rem;
+  color: rgba(220, 232, 240, 0.82);
+  margin: 4px 0 12px;
 }
 
 .sns-postit-foot {
-  border-top: 1px solid rgba(42, 32, 10, 0.22);
-  padding-top: 8px;
+  border-top: 1px solid rgba(194, 217, 232, 0.18);
+  padding-top: 10px;
   font-family: var(--font-mono);
-  font-size: 0.58rem;
+  font-size: 0.6rem;
   letter-spacing: 0.04em;
-  line-height: 1.5;
-  color: rgba(42, 32, 10, 0.78);
+  line-height: 1.6;
+  color: rgba(194, 217, 232, 0.62);
+}
+
+/* Summary-phase variant — wider so it can hold the lifetime scoreboard,
+   anchored slightly lower so it doesn't fight the result title. */
+.sns-postit--summary {
+  top: 156px;
+  width: 220px;
+  padding: 20px 18px 18px;
+}
+
+.sns-postit-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.04em;
+}
+
+.sns-postit-stat {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.6rem;
+  color: rgba(220, 232, 240, 0.74);
+}
+
+.sns-postit-stat strong {
+  color: var(--parch, #dce8f0);
+  font-weight: 600;
 }
 
 @media (max-width: 980px) {
@@ -253,10 +299,11 @@
 
 .sns-end {
   font-family: var(--font-mono);
-  font-size: 0.62rem;
+  font-size: 0.74rem;
   letter-spacing: 0.24em;
   text-transform: uppercase;
-  color: var(--text-3);
+  color: rgba(220, 232, 240, 0.78);
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.55);
 }
 
 .sns-verdict-live {
