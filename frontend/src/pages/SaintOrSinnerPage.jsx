@@ -144,23 +144,43 @@ function SaintOrSinnerPage() {
 // public opinion. Saint stats are per-user on the backend, so this surfaces
 // the individual's running uniqueness across every account login.
 function UniquenessPostit({ vibeScore, runs }) {
-  if (!runs) return null;
-  const uniqueness = Math.max(0, Math.min(100, 100 - vibeScore));
-  let read;
-  if (uniqueness >= 50) read = 'sharply your own';
-  else if (uniqueness >= 30) read = 'often off-script';
-  else if (uniqueness >= 15) read = 'mostly with the crowd';
-  else read = 'almost exactly the crowd';
+  // Show the post-it even on a brand-new account so the feature is
+  // discoverable. With no runs yet we render a placeholder card prompting
+  // the player to take a stand; numbers fill in once the first run lands.
+  const hasRuns = runs > 0;
+  const uniqueness = hasRuns
+    ? Math.max(0, Math.min(100, 100 - vibeScore))
+    : null;
+
+  let read = '';
+  if (hasRuns) {
+    if (uniqueness >= 50) read = 'sharply your own';
+    else if (uniqueness >= 30) read = 'often off-script';
+    else if (uniqueness >= 15) read = 'mostly with the crowd';
+    else read = 'almost exactly the crowd';
+  }
+
   return (
     <aside className="sns-postit" aria-label="Your judgement uniqueness vs the crowd">
       <span className="sns-postit-tape" aria-hidden="true" />
       <div className="sns-postit-eyebrow">your read · vs the crowd</div>
-      <div className="sns-postit-num">{uniqueness}<span className="sns-postit-pct">%</span></div>
-      <div className="sns-postit-sub">uniquely yours</div>
+      <div className="sns-postit-num">
+        {hasRuns ? uniqueness : '—'}
+        <span className="sns-postit-pct">{hasRuns ? '%' : ''}</span>
+      </div>
+      <div className="sns-postit-sub">
+        {hasRuns ? 'uniquely yours' : 'no reads yet'}
+      </div>
       <div className="sns-postit-foot">
-        <div>{vibeScore}% in tune with the public</div>
-        <div>{read}</div>
-        <div>across {runs} {runs === 1 ? 'run' : 'runs'}</div>
+        {hasRuns ? (
+          <>
+            <div>{vibeScore}% in tune with the public</div>
+            <div>{read}</div>
+            <div>across {runs} {runs === 1 ? 'run' : 'runs'}</div>
+          </>
+        ) : (
+          <div>play a round and your uniqueness will land here</div>
+        )}
       </div>
     </aside>
   );
