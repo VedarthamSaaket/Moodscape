@@ -233,9 +233,9 @@ export default function HomePage() {
 
         {/* Side labels */}
         <div style={{ position: 'absolute', left: '20px', top: '50%', zIndex: 3, transform: 'translateY(-50%)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
-          <div style={{ width: '1px', height: '44px', background: 'linear-gradient(180deg, transparent, rgba(194,217,232,0.30))' }} />
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.42rem', letterSpacing: '0.32em', textTransform: 'uppercase', color: 'rgba(194,217,232,0.32)', writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}>emotion to frequency</span>
-          <div style={{ width: '1px', height: '44px', background: 'linear-gradient(180deg, rgba(194,217,232,0.30), transparent)' }} />
+          <div style={{ width: '1px', height: '44px', background: 'linear-gradient(180deg, transparent, rgba(194,217,232,0.55))' }} />
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.52rem', letterSpacing: '0.32em', textTransform: 'uppercase', color: 'rgba(194,217,232,0.62)', writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}>emotion to frequency</span>
+          <div style={{ width: '1px', height: '44px', background: 'linear-gradient(180deg, rgba(194,217,232,0.55), transparent)' }} />
         </div>
         <div style={{ position: 'absolute', right: '20px', top: '28%', zIndex: 3, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
           <div style={{ width: '1px', height: '32px', background: 'linear-gradient(180deg, transparent, rgba(154,184,204,0.20))' }} />
