@@ -98,6 +98,14 @@ function SaintOrSinnerPage() {
 
   return (
     <div className={`quiz-shell ${fading ? 'fading' : ''}`}>
+      {/* Per-account uniqueness post-it — visible when the player is not
+          actively mid-round, so it never distracts from a live judgement.
+          Stats are backend-keyed by auth token, so each account sees only
+          their own running totals. */}
+      {(phase === 'intro' || phase === 'summary') && (
+        <UniquenessPostit vibeScore={vibeScore} runs={runs} />
+      )}
+
       {phase === 'intro' && (
         <Intro onStart={begin} runs={runs} vibeScore={vibeScore} rank={rank} />
       )}
@@ -129,6 +137,34 @@ function SaintOrSinnerPage() {
 }
 
 // ── sub-views ─────────────────────────────────────────────────────────────────
+
+// Per-account uniqueness chip, rendered as a tilted post-it stuck to the wall
+// on the left of the page. `vibeScore` is the % of times the player matched
+// the crowd; `100 − vibeScore` is therefore how much their reads diverge from
+// public opinion. Saint stats are per-user on the backend, so this surfaces
+// the individual's running uniqueness across every account login.
+function UniquenessPostit({ vibeScore, runs }) {
+  if (!runs) return null;
+  const uniqueness = Math.max(0, Math.min(100, 100 - vibeScore));
+  let read;
+  if (uniqueness >= 50) read = 'sharply your own';
+  else if (uniqueness >= 30) read = 'often off-script';
+  else if (uniqueness >= 15) read = 'mostly with the crowd';
+  else read = 'almost exactly the crowd';
+  return (
+    <aside className="sns-postit" aria-label="Your judgement uniqueness vs the crowd">
+      <span className="sns-postit-tape" aria-hidden="true" />
+      <div className="sns-postit-eyebrow">your read · vs the crowd</div>
+      <div className="sns-postit-num">{uniqueness}<span className="sns-postit-pct">%</span></div>
+      <div className="sns-postit-sub">uniquely yours</div>
+      <div className="sns-postit-foot">
+        <div>{vibeScore}% in tune with the public</div>
+        <div>{read}</div>
+        <div>across {runs} {runs === 1 ? 'run' : 'runs'}</div>
+      </div>
+    </aside>
+  );
+}
 
 // Persistent lifetime meter: how good a "vibe guesser" the player is — i.e. how
 // sharply they read strangers, accumulated across every run.
@@ -189,8 +225,8 @@ function JudgeStep({ figure, value, onChange, onLock }) {
   const band = repBand(value);
   return (
     <div className="sns-round">
-      <h2 className="sns-prompt">Who is this, and are they worth admiring?</h2>
-      <p className="sns-caption">Judge on the facts alone. No names yet.</p>
+      <h2 className="sns-prompt">Sinner, saint, or somewhere between?</h2>
+      <p className="sns-caption">Read the facts. Slide your verdict before the name drops.</p>
 
       <ul className="sns-traits">
         {figure.traits.map((t, i) => (

@@ -7,6 +7,91 @@
    live here. Same cardIn / --ease language as the rest of the app.
 */
 
+/* ── UNIQUENESS POST-IT ───────────────────────────────────────────────────
+   A tilted yellow paper stuck to the wall on the left of the page, showing
+   the current account's running uniqueness vs the public. Visible on the
+   intro and summary phases only — never mid-round, never on small screens.
+*/
+.sns-postit {
+  position: fixed;
+  top: 130px;
+  left: 26px;
+  width: 178px;
+  padding: 18px 16px 16px;
+  background:
+    linear-gradient(165deg, #f8ec9d 0%, #f0d56b 100%);
+  color: #2a200a;
+  font-family: var(--font-body);
+  border-radius: 2px;
+  box-shadow:
+    0 16px 32px rgba(0, 0, 0, 0.55),
+    0 3px 6px rgba(0, 0, 0, 0.40),
+    inset 0 0 36px rgba(255, 255, 255, 0.18);
+  transform: rotate(-3.5deg);
+  transform-origin: top center;
+  z-index: 4;
+  pointer-events: none;
+  user-select: none;
+}
+
+.sns-postit-tape {
+  position: absolute;
+  top: -12px;
+  left: 50%;
+  transform: translateX(-50%) rotate(-2deg);
+  width: 70px;
+  height: 18px;
+  background: rgba(255, 255, 255, 0.32);
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  border-radius: 1px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+
+.sns-postit-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 0.56rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(42, 32, 10, 0.72);
+  margin-bottom: 6px;
+}
+
+.sns-postit-num {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 2.6rem;
+  line-height: 1;
+  color: #1a1208;
+}
+
+.sns-postit-pct {
+  font-size: 1.2rem;
+  font-weight: 500;
+  margin-left: 2px;
+  color: rgba(42, 32, 10, 0.65);
+}
+
+.sns-postit-sub {
+  font-size: 0.78rem;
+  font-style: italic;
+  color: rgba(42, 32, 10, 0.78);
+  margin: 2px 0 10px;
+}
+
+.sns-postit-foot {
+  border-top: 1px solid rgba(42, 32, 10, 0.22);
+  padding-top: 8px;
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  letter-spacing: 0.04em;
+  line-height: 1.5;
+  color: rgba(42, 32, 10, 0.78);
+}
+
+@media (max-width: 980px) {
+  .sns-postit { display: none; }
+}
+
 /* ── INTRO extra ──────────────────────────────────────────────────────────── */
 .sns-best {
   font-family: var(--font-mono);
@@ -105,9 +190,10 @@
 
 .sns-caption {
   font-family: var(--font-body);
-  color: var(--text-3);
-  font-size: 0.95rem;
+  color: rgba(220, 232, 240, 0.82);
+  font-size: 1.02rem;
   margin: 0 0 2rem;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.6);
 }
 
 /* ── TRAITS ───────────────────────────────────────────────────────────────── */

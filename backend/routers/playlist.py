@@ -322,6 +322,14 @@ def quiz_suggestions(data: SuggestionsRequest, request: Request):
     vibe      = sanitise_user_text((data.vibePrompt or "").strip(), "vibePrompt", max_len=400) if data.vibePrompt else ""
     arch_name = sanitise_user_text((data.archetypeName or "").strip(), "archetypeName", max_len=80) if data.archetypeName else ""
     personal  = sanitise_search_token(data.personalSeed or "", "personalSeed", max_len=120)
+    # Spotify's search syntax treats `-` (with surrounding whitespace) as a
+    # NOT operator, so a user typing "One and only - Adele" was getting
+    # tracks that contain "One and only" but EXCLUDE Adele — i.e. the
+    # opposite of intent. Normalise common dash separators (hyphen, en-dash,
+    # em-dash) to a single space before the query is sent.
+    if personal:
+        personal = re.sub(r"\s+[-–—]\s+", " ", personal)
+        personal = re.sub(r"\s{2,}", " ", personal).strip()
 
     mood_text = vibe or arch_name or "chill"
     if arch_name and arch_name.lower() not in mood_text.lower():

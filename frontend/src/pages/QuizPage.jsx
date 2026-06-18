@@ -107,6 +107,8 @@ function QuizPage() {
     advance(() => setPhase('question'));
   };
 
+  // Button 1 — apply ONLY the archetype style to the next playlist. Clears
+  // any pinned songs so the generation is a pure archetype expression.
   const handleUseStyle = () => {
     if (!archetype) return;
     const style = {
@@ -115,8 +117,19 @@ function QuizPage() {
       vibePrompt: archetype.vibePrompt,
       genres:     archetype.genreSeed,
     };
-    setPendingStyleSeed(style);  // one-shot form prefill
-    setQuizStyle(style);         // persistent, survives the Spotify redirect
+    setPinnedTracks([]);          // pure style, no song carry-over
+    setPendingStyleSeed(style);   // one-shot form prefill
+    setQuizStyle(style);          // persistent, survives the Spotify redirect
+    navigate('/generator');
+  };
+
+  // Button 2 — pin selected (or all, if none cherry-picked) recommended songs
+  // into the next playlist WITHOUT applying the archetype style. Lets the user
+  // ride a few quiz-found tracks into a manually-shaped playlist.
+  const handleAddSongsOnly = (allTracks, picked) => {
+    const pinned = (picked && picked.length > 0) ? picked : allTracks;
+    setPinnedTracks(pinned || []);
+    // Do NOT set pendingStyleSeed / quizStyle — songs only, no archetype gloss.
     navigate('/generator');
   };
 
@@ -168,7 +181,7 @@ function QuizPage() {
             personalSeed={personalSeed}
             onRetake={handleRetake}
             onUseStyle={handleUseStyle}
-            onPin={setPinnedTracks}
+            onAddSongs={handleAddSongsOnly}
           />
         )}
 
@@ -316,7 +329,7 @@ function QuestionView({ question, index, total, selectedId, onPick, onBack, imag
   );
 }
 
-function ResultView({ archetype, runnerUp, scores, confidence, runnerUpConfidence, margin, personalSeed, onRetake, onUseStyle, onPin }) {
+function ResultView({ archetype, runnerUp, scores, confidence, runnerUpConfidence, margin, personalSeed, onRetake, onUseStyle, onAddSongs }) {
   const accent = archetype.accent;
   const gradient = `linear-gradient(110deg, ${accent.from} 0%, ${accent.to} 100%)`;
   const textGradient = {
@@ -391,10 +404,12 @@ function ResultView({ archetype, runnerUp, scores, confidence, runnerUpConfidenc
     });
   };
 
-  const handleBuild = () => {
+  // Pin only what the user picked. If they picked nothing, pin the whole
+  // suggested list — that's the spec for the "use these songs" button.
+  const handleAddSongsClick = () => {
     const picks = suggestions.filter((t) => t.spotifyUrl && selected.has(t.spotifyUrl));
-    onPin(picks);   // stage pinned songs for the next playlist (may be empty)
-    onUseStyle();   // applies the archetype style seed + routes to the generator
+    const allWithUri = suggestions.filter((t) => t.spotifyUrl);
+    onAddSongs(allWithUri, picks);
   };
 
   return (
@@ -500,17 +515,27 @@ function ResultView({ archetype, runnerUp, scores, confidence, runnerUpConfidenc
               })}
             </ul>
             <p className="quiz-suggest-hint">
-              ▶ plays in-app (queues the rest) · ♥ saves to your Saved tab · ✓ rides into your next playlist
+              ▶ plays in-app (queues the rest) · ♥ saves to your Saved tab · + add rides into your next playlist
             </p>
           </>
         )}
       </div>
 
       <div className="quiz-result-actions">
-        <button className="quiz-btn-primary" onClick={handleBuild}>
+        <button className="quiz-btn-primary" onClick={onUseStyle}>
+          Use my style in the next playlist →
+        </button>
+        <button
+          className="quiz-btn-primary"
+          onClick={handleAddSongsClick}
+          disabled={suggestions.length === 0}
+          title={selected.size > 0
+            ? `Add the ${selected.size} song${selected.size > 1 ? 's' : ''} you picked into the next playlist`
+            : 'Add ALL recommended songs into the next playlist'}
+        >
           {selected.size > 0
-            ? `Use ${selected.size} song${selected.size > 1 ? 's' : ''} in my next playlist →`
-            : 'Use my style in the next playlist →'}
+            ? `Add ${selected.size} song${selected.size > 1 ? 's' : ''} to my next playlist →`
+            : 'Add all songs to my next playlist →'}
         </button>
         <button className="quiz-btn-ghost" onClick={onRetake}>
           Retake
