@@ -24,6 +24,9 @@ function QuizPage() {
     archetype,
     runnerUp,
     scores,
+    confidence,
+    runnerUpConfidence,
+    margin,
     completedAt,
     personalSeed,
     recordAnswer,
@@ -71,9 +74,12 @@ function QuizPage() {
       ];
       const result = score(finalAnswers);
       finalize({
-        scores:    result.scores,
-        archetype: result.archetype,
-        runnerUp:  result.runnerUp,
+        scores:             result.scores,
+        archetype:          result.archetype,
+        runnerUp:           result.runnerUp,
+        confidence:         result.confidence,
+        runnerUpConfidence: result.runnerUpConfidence,
+        margin:             result.margin,
       });
       advance(() => setPhase('seed'));
     } else {
@@ -156,6 +162,9 @@ function QuizPage() {
             archetype={archetype}
             runnerUp={runnerUp}
             scores={scores}
+            confidence={confidence}
+            runnerUpConfidence={runnerUpConfidence}
+            margin={margin}
             personalSeed={personalSeed}
             onRetake={handleRetake}
             onUseStyle={handleUseStyle}
@@ -307,7 +316,7 @@ function QuestionView({ question, index, total, selectedId, onPick, onBack, imag
   );
 }
 
-function ResultView({ archetype, runnerUp, scores, personalSeed, onRetake, onUseStyle, onPin }) {
+function ResultView({ archetype, runnerUp, scores, confidence, runnerUpConfidence, margin, personalSeed, onRetake, onUseStyle, onPin }) {
   const accent = archetype.accent;
   const gradient = `linear-gradient(110deg, ${accent.from} 0%, ${accent.to} 100%)`;
   const textGradient = {
@@ -391,6 +400,20 @@ function ResultView({ archetype, runnerUp, scores, personalSeed, onRetake, onUse
       {runnerUp && (
         <p className="quiz-result-runner">
           with a streak of <span style={textGradient}>{runnerUp.name}</span>
+        </p>
+      )}
+
+      {Number.isFinite(confidence) && (
+        <p className="quiz-result-confidence">
+          {(() => {
+            const pct = Math.round(confidence * 100);
+            const m   = margin ?? 0;
+            const label =
+              m >= 0.20 ? 'Strong match' :
+              m >= 0.08 ? 'Clear lean'   :
+                          'Close lean';
+            return `${label} · ${pct}% certain`;
+          })()}
         </p>
       )}
 

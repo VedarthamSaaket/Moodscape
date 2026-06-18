@@ -368,6 +368,15 @@
   margin: 0;
 }
 
+.quiz-result-confidence {
+  font-family: var(--font-body);
+  font-size: 0.78rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(237, 242, 247, 0.55);
+  margin: 0.5rem 0 0;
+}
+
 .quiz-result-blurb {
   font-family: var(--font-body);
   font-size: 1.05rem;

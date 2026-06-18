@@ -66,6 +66,13 @@ const useQuizStore = create(
       scores: null,
       archetype: null,
       runnerUp: null,
+      // Classification confidence — softmax-over-negative-standardized-distances
+      // readout of the scoring model. Kept locally for the result-page display;
+      // not persisted server-side (the backend schema still stores only the
+      // winning archetype id + the raw axis vector).
+      confidence: null,
+      runnerUpConfidence: null,
+      margin: null,
       completedAt: null,
       hydratedFromServer: false,
       pendingStyleSeed: null,
@@ -96,9 +103,17 @@ const useQuizStore = create(
         }),
 
       // Finalize quiz, store scoring output, timestamp, and push to backend.
-      finalize: ({ scores, archetype, runnerUp }) => {
+      finalize: ({ scores, archetype, runnerUp, confidence, runnerUpConfidence, margin }) => {
         const completedAt = new Date().toISOString();
-        set({ scores, archetype, runnerUp, completedAt });
+        set({
+          scores,
+          archetype,
+          runnerUp,
+          confidence: confidence ?? null,
+          runnerUpConfidence: runnerUpConfidence ?? null,
+          margin: margin ?? null,
+          completedAt,
+        });
         pushResult({
           scores,
           archetype,
@@ -115,6 +130,9 @@ const useQuizStore = create(
           scores: null,
           archetype: null,
           runnerUp: null,
+          confidence: null,
+          runnerUpConfidence: null,
+          margin: null,
           completedAt: null,
           personalSeed: '',
         });
