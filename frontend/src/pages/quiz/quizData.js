@@ -610,7 +610,7 @@ export const QUESTIONS = [
     options: [
       {
         id: 'depth',
-        label: 'What they know — books, ideas, the deep end',
+        label: 'What they know: books, ideas, the deep end',
         whisper: 'A mind you could lose yourself in for an evening.',
         swatch: 'linear-gradient(160deg,#0e0a14 0%,#2a1f30 55%,#5b4360 100%)',
         searchQuery: 'old library reader candlelight intellectual',
@@ -619,7 +619,7 @@ export const QUESTIONS = [
       },
       {
         id: 'warmth',
-        label: 'How they make a room feel — warmth, ease',
+        label: 'How they make a room feel: warmth, ease',
         whisper: 'Someone whose company is a soft place to land.',
         swatch: 'linear-gradient(160deg,#f1d9a8 0%,#d6a662 50%,#8a5a3a 100%)',
         searchQuery: 'warm dinner table candles laughter friends',
@@ -628,7 +628,7 @@ export const QUESTIONS = [
       },
       {
         id: 'taste',
-        label: 'Their taste — sharp, current, unmistakable',
+        label: 'Their taste: sharp, current, unmistakable',
         whisper: 'You can read them off the way they style a room.',
         swatch: 'linear-gradient(160deg,#0a0e1a 0%,#1f2a40 55%,#7ad0e8 100%)',
         searchQuery: 'fashion editorial bold sharp current style',
@@ -637,7 +637,7 @@ export const QUESTIONS = [
       },
       {
         id: 'quiet',
-        label: "Their quiet — what they don't say",
+        label: "Their quiet: what they don't say",
         whisper: 'The pause before the answer, more than the answer.',
         swatch: 'linear-gradient(160deg,#0a0c10 0%,#1a2228 55%,#5e7488 100%)',
         searchQuery: 'foggy lake quiet figure silhouette dusk',

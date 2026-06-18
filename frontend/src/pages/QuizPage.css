@@ -397,9 +397,10 @@
 
 .vm-label {
   font-family: var(--font-mono);
-  font-size: 8px;
+  font-size: 10px;
   letter-spacing: 0.22em;
-  fill: var(--text-3);
+  fill: rgba(220, 232, 240, 0.85);
+  font-weight: 600;
 }
 
 /* ── SEED CARD ────────────────────────────────────────────────────────── */

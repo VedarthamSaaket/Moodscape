@@ -98,14 +98,14 @@ function VibeMeter({ scores, size = 260, accent = { from: '#9ab8cc', to: '#8e9fc
           cy={c}
           r={r}
           fill="none"
-          stroke="rgba(220,232,240,0.10)"
+          stroke="rgba(220,232,240,0.32)"
           strokeWidth={i === rings.length - 1 ? 1 : 0.6}
         />
       ))}
 
       {/* Cross axes */}
-      <line x1={c} y1={c - R} x2={c} y2={c + R} stroke="rgba(220,232,240,0.18)" strokeWidth="0.7" />
-      <line x1={c - R} y1={c} x2={c + R} y2={c} stroke="rgba(220,232,240,0.18)" strokeWidth="0.7" />
+      <line x1={c} y1={c - R} x2={c} y2={c + R} stroke="rgba(220,232,240,0.50)" strokeWidth="1" />
+      <line x1={c - R} y1={c} x2={c + R} y2={c} stroke="rgba(220,232,240,0.50)" strokeWidth="1" />
 
       {/* User polygon */}
       <polygon
