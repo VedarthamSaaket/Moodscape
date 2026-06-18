@@ -14,6 +14,41 @@ const shuffle = (arr) => {
   return a;
 };
 
+// Per-account "seen figure" memory so the deck rotates new strangers every
+// run until the entire FIGURES pool has been judged once, then resets.
+// Keyed by the authToken so each logged-in account has its own cycle.
+function seenKey() {
+  const t = (typeof localStorage !== 'undefined' && localStorage.getItem('authToken')) || 'anon';
+  return `sns_seen_${t.slice(0, 24)}`;
+}
+function readSeen() {
+  try {
+    const raw = localStorage.getItem(seenKey());
+    return new Set(raw ? JSON.parse(raw) : []);
+  } catch { return new Set(); }
+}
+function writeSeen(set) {
+  try { localStorage.setItem(seenKey(), JSON.stringify([...set])); }
+  catch { /* quota / private mode */ }
+}
+
+// Build the next deck excluding figures the user has already faced. If the
+// remaining pool is smaller than one round, recycle the whole list.
+function buildDeck() {
+  const seen = readSeen();
+  let pool = FIGURES.filter((f) => !seen.has(f.id));
+  let cycleReset = false;
+  if (pool.length < ROUND_COUNT) {
+    pool = FIGURES;
+    seen.clear();
+    cycleReset = true;
+  }
+  const deck = shuffle(pool).slice(0, ROUND_COUNT);
+  deck.forEach((d) => seen.add(d.id));
+  writeSeen(seen);
+  return { deck, cycleReset };
+}
+
 const proximity = (user, rep) => 100 - Math.abs(user - rep); // 0..100, higher = closer
 
 function summarise(results) {
@@ -60,7 +95,8 @@ function SaintOrSinnerPage() {
   };
 
   const begin = () => {
-    setDeck(shuffle(FIGURES).slice(0, ROUND_COUNT));
+    const { deck: nextDeck } = buildDeck();
+    setDeck(nextDeck);
     setIdx(0);
     setStep('judge');
     setValue(50);
@@ -96,6 +132,8 @@ function SaintOrSinnerPage() {
     }
   };
 
+  const { roundsTotal: lifetimeRounds, bestAccuracy } = useSaintStore();
+
   return (
     <div className={`quiz-shell ${fading ? 'fading' : ''}`}>
       {/* Per-account uniqueness post-it — visible when the player is not
@@ -103,7 +141,13 @@ function SaintOrSinnerPage() {
           Stats are backend-keyed by auth token, so each account sees only
           their own running totals. */}
       {(phase === 'intro' || phase === 'summary') && (
-        <UniquenessPostit vibeScore={vibeScore} runs={runs} />
+        <UniquenessPostit
+          vibeScore={vibeScore}
+          runs={runs}
+          roundsTotal={lifetimeRounds}
+          bestAccuracy={bestAccuracy}
+          phase={phase}
+        />
       )}
 
       {phase === 'intro' && (
@@ -143,10 +187,10 @@ function SaintOrSinnerPage() {
 // the crowd; `100 − vibeScore` is therefore how much their reads diverge from
 // public opinion. Saint stats are per-user on the backend, so this surfaces
 // the individual's running uniqueness across every account login.
-function UniquenessPostit({ vibeScore, runs }) {
-  // Show the post-it even on a brand-new account so the feature is
-  // discoverable. With no runs yet we render a placeholder card prompting
-  // the player to take a stand; numbers fill in once the first run lands.
+function UniquenessPostit({ vibeScore, runs, roundsTotal, bestAccuracy, phase }) {
+  // Always rendered when shown — even on a brand-new account — so the
+  // feature is discoverable. With no runs yet, numbers are replaced with a
+  // placeholder prompt; once the first run lands they fill in.
   const hasRuns = runs > 0;
   const uniqueness = hasRuns
     ? Math.max(0, Math.min(100, 100 - vibeScore))
@@ -160,10 +204,17 @@ function UniquenessPostit({ vibeScore, runs }) {
     else read = 'almost exactly the crowd';
   }
 
+  const isSummary = phase === 'summary';
+
   return (
-    <aside className="sns-postit" aria-label="Your judgement uniqueness vs the crowd">
+    <aside
+      className={`sns-postit${isSummary ? ' sns-postit--summary' : ''}`}
+      aria-label="Your judgement uniqueness vs the crowd"
+    >
       <span className="sns-postit-tape" aria-hidden="true" />
-      <div className="sns-postit-eyebrow">your read · vs the crowd</div>
+      <div className="sns-postit-eyebrow">
+        {isSummary ? 'lifetime scoreboard' : 'your read · vs the crowd'}
+      </div>
       <div className="sns-postit-num">
         {hasRuns ? uniqueness : '—'}
         <span className="sns-postit-pct">{hasRuns ? '%' : ''}</span>
@@ -171,17 +222,41 @@ function UniquenessPostit({ vibeScore, runs }) {
       <div className="sns-postit-sub">
         {hasRuns ? 'uniquely yours' : 'no reads yet'}
       </div>
-      <div className="sns-postit-foot">
-        {hasRuns ? (
-          <>
-            <div>{vibeScore}% in tune with the public</div>
-            <div>{read}</div>
-            <div>across {runs} {runs === 1 ? 'run' : 'runs'}</div>
-          </>
-        ) : (
-          <div>play a round and your uniqueness will land here</div>
-        )}
-      </div>
+
+      {/* Summary variant adds the full lifetime scoreboard so the user
+          sees concluded numbers for every Saint-or-Sinner run on their
+          account in one place. */}
+      {hasRuns && isSummary ? (
+        <div className="sns-postit-stats">
+          <div className="sns-postit-stat">
+            <span>in tune with public</span><strong>{vibeScore}%</strong>
+          </div>
+          <div className="sns-postit-stat">
+            <span>best single run</span><strong>{bestAccuracy || 0}%</strong>
+          </div>
+          <div className="sns-postit-stat">
+            <span>strangers judged</span><strong>{roundsTotal || 0}</strong>
+          </div>
+          <div className="sns-postit-stat">
+            <span>rounds played</span><strong>{runs}</strong>
+          </div>
+          <div className="sns-postit-stat">
+            <span>your read</span><strong>{read}</strong>
+          </div>
+        </div>
+      ) : (
+        <div className="sns-postit-foot">
+          {hasRuns ? (
+            <>
+              <div>{vibeScore}% in tune with the public</div>
+              <div>{read}</div>
+              <div>across {runs} {runs === 1 ? 'run' : 'runs'}</div>
+            </>
+          ) : (
+            <div>play a round and your uniqueness will land here</div>
+          )}
+        </div>
+      )}
     </aside>
   );
 }
@@ -199,7 +274,7 @@ function VibeGuesserMeter({ score, rank, runs, variant }) {
         <div className="sns-vibe-fill" style={{ width: `${score}%` }} />
       </div>
       <p className="sns-vibe-sub">
-        how sharply you read people — across {runs} {runs === 1 ? 'round' : 'rounds'}
+        how sharply you read people, across {runs} {runs === 1 ? 'round' : 'rounds'}
       </p>
     </div>
   );
