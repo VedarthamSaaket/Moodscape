@@ -26,6 +26,17 @@ export const ARCHETYPES = [
       'Soft sunlit afternoons, hand-pulled bread on a wooden table, distant church bells, a slow folk record on the porch.',
     genreSeed:    ['Folk', 'Indie'],
     languageSeed: ['English', 'Hindi'],
+    // Direct Spotify search queries known to surface this archetype's sonic
+    // core. Used by /api/quiz/suggestions as priority seeds before the
+    // general archetype/mood/genre query builder runs, so the result-page
+    // samples land on territory the archetype actually owns.
+    searchSeeds: [
+      'acoustic folk pastoral fingerpicking',
+      'indie folk warm guitar morning',
+      'english folk revival nick drake',
+      'appalachian banjo gentle',
+      'celtic harp folk soft',
+    ],
   },
   {
     id: 'dark-academia',
@@ -37,6 +48,13 @@ export const ARCHETYPES = [
       'Rain on cathedral windows, candlewax on old paper, the loneliness of a half-finished translation at 2am.',
     genreSeed:    ['Classical', 'Indie'],
     languageSeed: ['English'],
+    searchSeeds: [
+      'chamber music piano sonata melancholy',
+      'baroque cello cantata sacred',
+      'neoclassical piano max richter olafur arnalds',
+      'ambient choral sacred',
+      'literary indie folk rainy',
+    ],
   },
   {
     id: 'y2k-chrome',
@@ -48,6 +66,13 @@ export const ARCHETYPES = [
       'Flip-phone glow, holographic stickers on a CRT, synthetic strings over a four-on-the-floor pulse, the early-2000s future dialed up.',
     genreSeed:    ['Electronic / EDM', 'Pop'],
     languageSeed: ['English', 'Korean'],
+    searchSeeds: [
+      'y2k pop 2003 nostalgia',
+      'early 2000s eurodance trance',
+      'hyperpop chrome glitch',
+      'happy hardcore early 2000s',
+      'electroclash 2003 synth',
+    ],
   },
   {
     id: 'cinematic-dusk',
@@ -59,6 +84,13 @@ export const ARCHETYPES = [
       'Cold mountain light, slow film grain, the long pause before night, a soundtrack for solitary drives and quiet windows.',
     genreSeed:    ['Ambient', 'Indie'],
     languageSeed: ['English', 'Hindi'],
+    searchSeeds: [
+      'cinematic instrumental piano dusk',
+      'post-rock instrumental epic slow',
+      'ambient drone film score',
+      'modern classical solo piano',
+      'scandinavian neoclassical winter',
+    ],
   },
   {
     id: 'coquette',
@@ -70,6 +102,13 @@ export const ARCHETYPES = [
       'Pink ribbons on pointe shoes, a music box opened slowly, soft strings and a voice that whispers in French.',
     genreSeed:    ['Indie', 'Classical'],
     languageSeed: ['English', 'French'],
+    searchSeeds: [
+      'french indie pop soft whispered',
+      'dreamy bedroom pop ribbon',
+      'twee acoustic gentle belle and sebastian',
+      'string quartet romantic waltz',
+      'ballet score tchaikovsky',
+    ],
   },
   {
     id: 'maximalist-eclectic',
@@ -81,6 +120,13 @@ export const ARCHETYPES = [
       'A flea-market apartment thick with rugs and records, global percussion, brass, languages weaving over each other in the kitchen.',
     genreSeed:    ['Pop', 'Hip-Hop / Rap', 'Indie'],
     languageSeed: ['Hindi', 'Spanish', 'English'],
+    searchSeeds: [
+      'afrobeat fela kuti brass psychedelic',
+      'latin cumbia global fusion',
+      'bollywood bhangra dance',
+      'world fusion percussion brass',
+      'tropicalia psychedelic brazilian',
+    ],
   },
   {
     id: 'post-romance',
@@ -92,6 +138,13 @@ export const ARCHETYPES = [
       'A dim room at 1am, post-breakup. Reverb-drenched guitars, breathy vocals, the romance of getting through tonight.',
     genreSeed:    ['Indie', 'Pop'],
     languageSeed: ['English', 'French'],
+    searchSeeds: [
+      'dream pop shoegaze 4ad reverb',
+      'sad indie pop heartbreak slow',
+      'synth pop melancholy 80s alphaville',
+      'slowdive ethereal shoegaze',
+      'bedroom pop reverb late night',
+    ],
   },
   {
     id: 'brutalist',
@@ -103,6 +156,13 @@ export const ARCHETYPES = [
       'Concrete-floor warehouses, single-bulb shadow, a kick drum that feels like a closing door, minimal, mechanical, alive.',
     genreSeed:    ['Electronic / EDM', 'Rock'],
     languageSeed: ['English'],
+    searchSeeds: [
+      'industrial techno warehouse berlin',
+      'dark minimal techno underground',
+      'harsh ebm body music',
+      'post-punk gothic angular',
+      'noise rock metal grindcore',
+    ],
   },
   {
     id: 'normal',
@@ -114,6 +174,13 @@ export const ARCHETYPES = [
       'Friday-night radio, a well-lit room, friends singing along to a song everyone knows, easy warmth, no pretence.',
     genreSeed:    ['Pop', 'Hip-Hop / Rap', 'R&B'],
     languageSeed: ['English', 'Hindi', 'Spanish'],
+    searchSeeds: [
+      'top 40 pop hits singalong',
+      'feel good pop chart',
+      'summer party top hits',
+      'drive playlist hits',
+      'pop classics everyone knows',
+    ],
   },
 ];
 
@@ -227,7 +294,9 @@ export const QUESTIONS = [
         whisper: 'Cigar smoke woven into the fibers.',
         swatch: 'linear-gradient(160deg,#3a2a1c 0%,#5b4632 55%,#9a8868 100%)',
         searchQuery: 'tweed fabric texture brown wool',
-        delta: { temp: 0, edge: 0, era: -2, density: 0 },
+        // Cool-leaning vintage so it pulls Dark Academia distinctly from
+        // Cottagecore (which already owns warm-vintage via lace/farm-table).
+        delta: { temp: -1, edge: 0, era: -2, density: 0 },
       },
       {
         id: 'pvc',
@@ -260,7 +329,9 @@ export const QUESTIONS = [
         whisper: 'Strings bend a corner before they reach you.',
         swatch: 'linear-gradient(160deg,#0a0a0e 0%,#2a1a2e 55%,#5a4458 100%)',
         searchQuery: 'string quartet violin candlelight',
-        delta: { temp: 0, edge: -1, era: -2, density: 0 },
+        // Cool-leaning so chamber music pulls Dark Academia rather than
+        // sliding toward Coquette (which already owns warm strings via lace).
+        delta: { temp: -1, edge: -1, era: -2, density: 0 },
       },
       {
         id: 'analog-synth',
@@ -383,7 +454,9 @@ export const QUESTIONS = [
         whisper: 'A monk’s hand from 1480.',
         swatch: 'linear-gradient(160deg,#0a0a0a 0%,#1a1a1a 60%,#3a2828 100%)',
         searchQuery: 'gothic blackletter calligraphy manuscript',
-        delta: { temp: 0, edge: +1, era: -2, density: 0 },
+        // Cleaner DA pull: cool + deep vintage. Drop the +1 edge so it
+        // doesn't double as a brutalist signal alongside stenciled sans.
+        delta: { temp: -1, edge: 0, era: -2, density: 0 },
       },
       {
         id: 'pixel-mono',
@@ -519,6 +592,104 @@ export const QUESTIONS = [
       { id: 'people',  label: 'People I trust passing it on',     delta: { temp: +1, edge: 0,  era: 0,  density: 0 } },
       { id: 'algo',    label: 'Playlists and algorithms',         delta: { temp: 0,  edge: 0,  era: +1, density: 0 } },
       { id: 'charts',  label: 'Charts, whatever’s everywhere',   delta: { temp: +1, edge: 0,  era: +1, density: +1 } },
+    ],
+  },
+
+  // ─── Personal-identity tile questions ─────────────────────────────────────
+  // Two final image-tile probes added to push the question count to 15 and to
+  // surface stronger identity signal than the abstract likerts above. Each
+  // gives every archetype family at least one strongly-leaning option so a
+  // user whose taste genuinely sits in a niche (Dark Academia, Brutalist) is
+  // pulled there decisively instead of drifting toward warmer/centred
+  // archetypes by default.
+  {
+    id: 'attraction',
+    kind: 'tile',
+    prompt: 'What pulls you in first when you meet someone?',
+    caption: 'The thing you actually fall for, before you can explain it.',
+    options: [
+      {
+        id: 'depth',
+        label: 'What they know — books, ideas, the deep end',
+        whisper: 'A mind you could lose yourself in for an evening.',
+        swatch: 'linear-gradient(160deg,#0e0a14 0%,#2a1f30 55%,#5b4360 100%)',
+        searchQuery: 'old library reader candlelight intellectual',
+        // Strong Dark Academia pull — cool, deep-vintage, intellectually weighted.
+        delta: { temp: -1, edge: 0, era: -2, density: 0 },
+      },
+      {
+        id: 'warmth',
+        label: 'How they make a room feel — warmth, ease',
+        whisper: 'Someone whose company is a soft place to land.',
+        swatch: 'linear-gradient(160deg,#f1d9a8 0%,#d6a662 50%,#8a5a3a 100%)',
+        searchQuery: 'warm dinner table candles laughter friends',
+        // Cottagecore / Coquette pull — warm, soft, lived-in.
+        delta: { temp: +2, edge: -1, era: -1, density: +1 },
+      },
+      {
+        id: 'taste',
+        label: 'Their taste — sharp, current, unmistakable',
+        whisper: 'You can read them off the way they style a room.',
+        swatch: 'linear-gradient(160deg,#0a0e1a 0%,#1f2a40 55%,#7ad0e8 100%)',
+        searchQuery: 'fashion editorial bold sharp current style',
+        // Y2K / Maximalist Eclectic — cool-edged, contemporary, density up.
+        delta: { temp: 0, edge: +2, era: +1, density: +1 },
+      },
+      {
+        id: 'quiet',
+        label: "Their quiet — what they don't say",
+        whisper: 'The pause before the answer, more than the answer.',
+        swatch: 'linear-gradient(160deg,#0a0c10 0%,#1a2228 55%,#5e7488 100%)',
+        searchQuery: 'foggy lake quiet figure silhouette dusk',
+        // Cinematic Dusk / Post Romance — cool, restrained, atmospheric.
+        delta: { temp: -1, edge: -1, era: 0, density: -2 },
+      },
+    ],
+  },
+
+  {
+    id: 'ritual',
+    kind: 'tile',
+    prompt: "Choose the ritual you'd actually keep.",
+    caption: 'Not the impressive one. The one you would do this week.',
+    options: [
+      {
+        id: 'morning-book',
+        label: 'Morning coffee with a real book, no phone',
+        whisper: 'An hour that belongs to nobody but you and the page.',
+        swatch: 'linear-gradient(160deg,#1a0e0e 0%,#3a2418 55%,#a98a5a 100%)',
+        searchQuery: 'morning coffee book sunlight reader',
+        // Dark Academia / Cottagecore overlap — but cool-leaning because of
+        // the solitary intellectual frame. Era −2 anchors vintage.
+        delta: { temp: 0, edge: -1, era: -2, density: -1 },
+      },
+      {
+        id: 'long-walk',
+        label: 'A long walk with one album, alone',
+        whisper: 'Headphones, the city slowing, the world out of focus.',
+        swatch: 'linear-gradient(160deg,#0c1018 0%,#22303f 55%,#7a8fa6 100%)',
+        searchQuery: 'long walk city dusk headphones solitary',
+        // Cinematic Dusk / Post Romance — solitary, restrained, atmospheric.
+        delta: { temp: -1, edge: -1, era: 0, density: -2 },
+      },
+      {
+        id: 'kitchen-night',
+        label: 'A late kitchen with friends, music on',
+        whisper: 'Wine, six chairs, no one wants the night to end.',
+        swatch: 'linear-gradient(160deg,#3a1a14 0%,#a8541e 55%,#e8a86a 100%)',
+        searchQuery: 'kitchen friends warm dinner music night',
+        // Cottagecore / Maximalist Eclectic — warm, communal, dense.
+        delta: { temp: +2, edge: 0, era: -1, density: +2 },
+      },
+      {
+        id: 'loud-night',
+        label: 'A loud night, dancing it out',
+        whisper: 'Bass in your sternum, somewhere with strangers.',
+        swatch: 'linear-gradient(160deg,#0a0a0e 0%,#2a0e2a 55%,#d8401c 100%)',
+        searchQuery: 'club night dancing red light bass strangers',
+        // Brutalist / Y2K — sharp-edged, current, energetic.
+        delta: { temp: -1, edge: +2, era: +1, density: +1 },
+      },
     ],
   },
 ];

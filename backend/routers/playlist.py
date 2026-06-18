@@ -332,15 +332,28 @@ def quiz_suggestions(data: SuggestionsRequest, request: Request):
     selected_genres = [sanitise_genre(g) for g in (data.genreSeed or [])][:5]
     count           = max(1, min(data.count or 10, 12))
 
+    # Archetype-specific Spotify search queries from quizData.js — sanitised
+    # and capped. These run before the artist/theme/quiz strands below so the
+    # final blend is anchored on hand-curated sonic territory.
+    raw_seeds = data.searchSeeds or []
+    archetype_seeds = []
+    for s in raw_seeds[:6]:
+        if not isinstance(s, str):
+            continue
+        clean = sanitise_search_token(s.strip(), "archetypeSeed", max_len=120)
+        if clean:
+            archetype_seeds.append(clean)
+
     lang_key = LANGUAGE_ALIASES.get((selected_langs[0] if selected_langs else "english").lower(), "english")
     market   = LANGUAGE_CONFIG.get(lang_key, LANGUAGE_CONFIG["english"]).get("market", "US")
 
     mood_profile = parse_mood_profile(mood_text, None)
     dedup        = DeduplicationState()
 
-    artist_tracks = []   # 1. the artist's own songs
-    theme_tracks  = []   # 2. songs in the artist's sonic theme
-    artist_genres = []
+    archetype_tracks = []   # 0b. archetype-seed hits (curated sonic territory)
+    artist_tracks    = []   # 1.  the artist's own songs
+    theme_tracks     = []   # 2.  songs in the artist's sonic theme
+    artist_genres    = []
 
     # 0. The exact track the user named, guaranteed into the list (deduped so the
     #    artist/theme/quiz strands below won't repeat it). When they typed an
@@ -357,6 +370,34 @@ def quiz_suggestions(data: SuggestionsRequest, request: Request):
                     seed_tracks.append(normalise_track(t))
         except Exception as exc:
             logger.warning(f"[SUGGEST] seed track search failed: {exc}")
+
+    # 0b. Archetype-curated search seeds. Each seed is a hand-tuned Spotify
+    #     query that reliably surfaces the archetype's sonic core (see
+    #     `searchSeeds` in quizData.js). Running these BEFORE the generic
+    #     mood/genre recommendation path is what makes the result-page
+    #     samples spot-on for a niche archetype like Dark Academia, where
+    #     the generic HF zero-shot → mood-bank route would land on a much
+    #     broader "sad indie" cloud.
+    if archetype_seeds:
+        per_seed = max(1, min(2, (count // max(1, len(archetype_seeds))) + 1))
+        for q in archetype_seeds:
+            if len(archetype_tracks) >= count:
+                break
+            try:
+                hits = search_tracks_by_query(token, q, market, limit=12)
+            except Exception as exc:
+                logger.warning(f"[SUGGEST] archetype seed '{q}' failed: {exc}")
+                continue
+            added_for_seed = 0
+            for t in hits:
+                uri = t.get("uri", "")
+                a   = t["artists"][0]["name"] if t.get("artists") else ""
+                if uri and dedup.is_allowed(uri, a):
+                    dedup.register(uri, a)
+                    archetype_tracks.append(normalise_track(t))
+                    added_for_seed += 1
+                if added_for_seed >= per_seed:
+                    break
 
     if personal:
         # ── 1. The artist's own top tracks ──────────────────────────────────
@@ -405,7 +446,11 @@ def quiz_suggestions(data: SuggestionsRequest, request: Request):
                 logger.warning(f"[SUGGEST] theme search '{q}' failed: {exc}")
 
     # ── 3. Archetype / quiz-driven recommendations fill the rest ────────────
-    remaining   = max(0, count - len(seed_tracks) - len(artist_tracks) - len(theme_tracks))
+    remaining = max(
+        0,
+        count - len(seed_tracks) - len(archetype_tracks)
+              - len(artist_tracks) - len(theme_tracks),
+    )
     quiz_tracks = []
     if remaining > 0:
         try:
@@ -416,10 +461,14 @@ def quiz_suggestions(data: SuggestionsRequest, request: Request):
         except Exception as exc:
             logger.warning(f"[SUGGEST] recommendations failed: {exc}")
 
-    # Weave the three strands round-robin so the list reads as a genuine blend
-    # rather than three stacked blocks. The user's named track always leads.
+    # Weave the strands round-robin so the list reads as a genuine blend
+    # rather than stacked blocks. The user's named track always leads, then
+    # one from each strand: archetype seeds (curated), artist tracks (their
+    # named favourite), theme tracks (artist genre + mood), and the generic
+    # quiz/mood fill. Archetype seeds sit first in each rotation so the
+    # samples are recognisably the archetype's sound from the top of the list.
     blended = (seed_tracks + [
-        t for group in zip_longest(artist_tracks, theme_tracks, quiz_tracks)
+        t for group in zip_longest(archetype_tracks, artist_tracks, theme_tracks, quiz_tracks)
         for t in group if t
     ])[:count]
 

@@ -41,6 +41,12 @@ class SuggestionsRequest(BaseModel):
     genreSeed:     Optional[list[str]] = None
     languageSeed:  Optional[list[str]] = None
     personalSeed:  Optional[str]       = None
+    # Direct Spotify search queries hand-curated per archetype in
+    # frontend/src/pages/quiz/quizData.js. These run BEFORE the general
+    # archetype/mood/genre query builder so the result-page samples land on
+    # sonic territory the archetype actually owns (e.g. "chamber music piano
+    # sonata melancholy" for Dark Academia).
+    searchSeeds:   Optional[list[str]] = None
     count:         int                 = 10
 
 class MoodRequest(BaseModel):
