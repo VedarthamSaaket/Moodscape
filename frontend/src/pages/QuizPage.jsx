@@ -356,6 +356,11 @@ function ResultView({ archetype, runnerUp, scores, confidence, runnerUpConfidenc
             vibePrompt:    archetype.vibePrompt,
             genreSeed:     archetype.genreSeed,
             languageSeed:  archetype.languageSeed,
+            // Archetype-curated Spotify search queries — backend runs these
+            // before the generic mood/genre fill so the samples land on the
+            // archetype's actual sonic core (e.g. chamber music for Dark
+            // Academia rather than an undifferentiated "sad indie" cloud).
+            searchSeeds:   archetype.searchSeeds || null,
             personalSeed:  personalSeed || null,
             count:         10,
           }),
