@@ -25,16 +25,19 @@ const useSavedStore = create((set, get) => ({
   hydrated: false,      // pulled from server this session
 
   // Pull the user's saved songs from the server. Source of truth. No-op if
-  // logged out or already hydrated this session.
-  hydrate: async () => {
+  // logged out or already hydrated this session, unless `force` is true.
+  // `force` is set on visibility / focus refreshes so a user returning to
+  // the tab always sees the latest server state, even within one session.
+  hydrate: async (force = false) => {
     const headers = authHeaders();
-    if (!headers || get().hydrated) return;
+    if (!headers) return;
+    if (!force && get().hydrated) return;
     try {
       const res = await fetch(`${API_BASE}/api/saved`, { headers });
       if (!res.ok) return;
       const data = await res.json();
       set({ saved: Array.isArray(data.saved) ? data.saved : [], hydrated: true });
-    } catch { /* network down — leave empty, retry next session */ }
+    } catch { /* network down — leave existing in-memory list as-is */ }
   },
   resetHydration: () => set({ saved: [], hydrated: false }),
 
@@ -43,10 +46,10 @@ const useSavedStore = create((set, get) => ({
     return get().saved.some((x) => savedKey(x) === k);
   },
 
-  toggleSave: (t) => {
+  toggleSave: async (t) => {
     const k = savedKey(t);
     if (get().saved.some((x) => savedKey(x) === k)) {
-      get().removeSaved(t);
+      await get().removeSaved(t);
       return;
     }
     const clean = {
@@ -57,22 +60,37 @@ const useSavedStore = create((set, get) => ({
     };
     set((s) => ({ saved: [clean, ...s.saved.filter((x) => savedKey(x) !== k)] })); // optimistic
     const headers = authHeaders();
-    if (headers) {
-      fetch(`${API_BASE}/api/saved/add`, {
+    if (!headers) return; // logged out — keep local copy this session
+    try {
+      const res = await fetch(`${API_BASE}/api/saved/add`, {
         method: 'POST', headers, body: JSON.stringify(clean),
-      }).catch(() => { /* stays local this session; re-synced on next hydrate */ });
+      });
+      // If the backend didn't accept it, revert the optimistic add so the
+      // user sees the failure instead of silently losing the song between
+      // sessions (this was the actual source of the disappearing-saves bug
+      // — fire-and-forget add + empty hydrate next time = data loss).
+      if (!res.ok) {
+        set((s) => ({ saved: s.saved.filter((x) => savedKey(x) !== k) }));
+      }
+    } catch {
+      set((s) => ({ saved: s.saved.filter((x) => savedKey(x) !== k) }));
     }
   },
 
-  removeSaved: (t) => {
+  removeSaved: async (t) => {
     const k = savedKey(t);
+    const prev = get().saved;
     set((s) => ({ saved: s.saved.filter((x) => savedKey(x) !== k) })); // optimistic
     const headers = authHeaders();
-    if (headers) {
-      fetch(`${API_BASE}/api/saved/remove`, {
+    if (!headers) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/saved/remove`, {
         method: 'POST', headers,
         body: JSON.stringify({ title: t.title, artist: t.artist, spotifyUrl: t.spotifyUrl }),
-      }).catch(() => {});
+      });
+      if (!res.ok) set({ saved: prev }); // server rejected — put it back
+    } catch {
+      set({ saved: prev });
     }
   },
 

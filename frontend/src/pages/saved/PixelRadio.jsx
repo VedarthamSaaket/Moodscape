@@ -36,9 +36,13 @@ const C = {
 
   displayBg:    '#0a1418',
   displayFrame: '#27425e',
-  displayBar:   '#7ee8b8',
-  displayBarDim:'#1e4038',
-  displayAccent:'#e57878',
+  /* Soft cyan accent — matches the LCD/dots/buttons palette from the
+     reference image. Applied to the LCD bars, the "FM" tick dots, the
+     four power-label dots, and the floating music-note glyphs so the
+     whole "live" signal reads as one colour family. */
+  displayBar:   '#88d8e8',
+  displayBarDim:'#1e3c44',
+  displayAccent:'#d8746e',
 
   speakerFrame:  '#0a1828',
   speakerCell:   '#27425e',
@@ -63,7 +67,7 @@ const C = {
   foot:      '#050a12',
   footHi:    '#27425e',
 
-  note:      '#7ee8b8',
+  note:      '#88d8e8',
 };
 
 // 1×1 (or w×h) pixel rect helper.
@@ -175,23 +179,25 @@ function VuBars({ x, y, on }) {
 //   left   — drifts out to the left
 //   right  — drifts out to the right
 function MusicNotes() {
+  // Sizes span a deliberately visible range (2.4 .. 5.6 SVG units) so the
+  // wash has a clear mix of bigger + smaller glyphs side by side. None of
+  // them are huge — the radio is small. None drift from the BOTTOM of the
+  // radio (the floor reads as where the feet sit, notes coming out of the
+  // ground looked unnatural). Only top / left / right.
   const notes = [
     // ── Top edge ─────────────────────────────────────────────
-    { ch: '♪', x: 14, y: 7,  size: 3.4, side: 'up',    delay: '0s'   },
-    { ch: '♫', x: 24, y: 5,  size: 2.8, side: 'up',    delay: '0.7s' },
-    { ch: '♬', x: 34, y: 8,  size: 4.0, side: 'up',    delay: '1.4s' },
+    { ch: '♪', x: 13, y: 7,  size: 3.2, side: 'up',    delay: '0s'   },
+    { ch: '♫', x: 22, y: 4,  size: 5.0, side: 'up',    delay: '0.6s' },
+    { ch: '♬', x: 30, y: 8,  size: 2.6, side: 'up',    delay: '1.2s' },
+    { ch: '♩', x: 38, y: 5,  size: 4.2, side: 'up',    delay: '1.8s' },
     // ── Right edge ───────────────────────────────────────────
-    { ch: '♩', x: 47, y: 19, size: 3.0, side: 'right', delay: '0.3s' },
-    { ch: '♪', x: 48, y: 28, size: 4.2, side: 'right', delay: '1.1s' },
-    { ch: '♫', x: 47, y: 35, size: 2.6, side: 'right', delay: '1.9s' },
-    // ── Bottom edge ──────────────────────────────────────────
-    { ch: '♬', x: 14, y: 42, size: 2.8, side: 'down',  delay: '0.5s' },
-    { ch: '♪', x: 25, y: 43, size: 3.6, side: 'down',  delay: '1.3s' },
-    { ch: '♩', x: 36, y: 42, size: 3.0, side: 'down',  delay: '2.1s' },
+    { ch: '♪', x: 48, y: 18, size: 2.8, side: 'right', delay: '0.3s' },
+    { ch: '♫', x: 49, y: 25, size: 5.6, side: 'right', delay: '1.0s' },
+    { ch: '♬', x: 48, y: 33, size: 3.4, side: 'right', delay: '1.7s' },
     // ── Left edge ────────────────────────────────────────────
-    { ch: '♫', x: 2,  y: 22, size: 3.2, side: 'left',  delay: '0.9s' },
-    { ch: '♪', x: 1,  y: 30, size: 4.0, side: 'left',  delay: '1.7s' },
-    { ch: '♬', x: 2,  y: 36, size: 2.6, side: 'left',  delay: '2.5s' },
+    { ch: '♩', x: 1,  y: 19, size: 4.4, side: 'left',  delay: '0.5s' },
+    { ch: '♪', x: 2,  y: 27, size: 2.4, side: 'left',  delay: '1.2s' },
+    { ch: '♫', x: 1,  y: 34, size: 4.8, side: 'left',  delay: '2.0s' },
   ];
 
   return (
@@ -312,11 +318,11 @@ export default function PixelRadio({ on, onToggle }) {
         {/* ── Tuning knob (right side, big and round) ─────────────────── */}
         <Knob cx={40} cy={31} r={3} on={on} />
 
-        {/* ── Power label dots ────────────────────────────────────────── */}
-        <Px x={27} y={31} w={1} h={1} fill={C.bodyHi} />
-        <Px x={29} y={31} w={1} h={1} fill={C.bodyHi} />
-        <Px x={31} y={31} w={1} h={1} fill={C.bodyHi} />
-        <Px x={33} y={31} w={1} h={1} fill={C.bodyHi} />
+        {/* ── Power label dots — same cyan family as the LCD bars + glyphs */}
+        <Px x={27} y={31} w={1} h={1} fill={on ? C.displayBar : C.displayBarDim} />
+        <Px x={29} y={31} w={1} h={1} fill={on ? C.displayBar : C.displayBarDim} />
+        <Px x={31} y={31} w={1} h={1} fill={on ? C.displayBar : C.displayBarDim} />
+        <Px x={33} y={31} w={1} h={1} fill={on ? C.displayBar : C.displayBarDim} />
 
         {/* ── Stubby feet ─────────────────────────────────────────────── */}
         <Px x={7}  y={40} w={5} h={1} fill={C.outline} />

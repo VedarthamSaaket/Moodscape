@@ -22,7 +22,7 @@
 .pixel-radio:hover {
   filter:
     drop-shadow(0 10px 18px rgba(0, 0, 0, 0.6))
-    drop-shadow(0 0 14px rgba(126, 232, 184, 0.22));
+    drop-shadow(0 0 14px rgba(136, 216, 232, 0.26));
 }
 
 .pixel-radio:active {
@@ -41,7 +41,7 @@
 }
 
 .pixel-radio--on .pixel-radio__svg {
-  filter: drop-shadow(0 0 8px rgba(126, 232, 184, 0.22));
+  filter: drop-shadow(0 0 8px rgba(136, 216, 232, 0.26));
 }
 
 /* ── Pixel-y bob — discrete steps so it reads like sprite animation, not
@@ -65,9 +65,9 @@
   font-size: 0.62rem;
   letter-spacing: 0.18em;
   padding: 3px 9px;
-  border: 1px solid rgba(126, 232, 184, 0.45);
+  border: 1px solid rgba(136, 216, 232, 0.48);
   background: rgba(8, 20, 24, 0.85);
-  color: rgba(126, 232, 184, 0.9);
+  color: rgba(136, 216, 232, 0.92);
   border-radius: 2px;
   text-transform: uppercase;
   animation: pr-hint-pulse 1.6s ease-in-out infinite;

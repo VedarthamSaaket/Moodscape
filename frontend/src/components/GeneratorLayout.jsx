@@ -33,6 +33,23 @@ function GeneratorLayout() {
     hydrateSaint();
   }, [hydrateFromServer, hydrateQuiz, hydrateSaved, hydratePlayer, hydrateSaint]);
 
+  // Aggressive re-sync for saved songs. Every time the tab regains focus or
+  // becomes visible, force a fresh pull from the server so the user never
+  // sees a stale list — addresses the "my saved songs disappeared" bug
+  // where a silent server write failure earlier in the session would leave
+  // the in-memory list out of sync with the database.
+  useEffect(() => {
+    const refresh = () => {
+      if (document.visibilityState === 'visible') hydrateSaved(true);
+    };
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', refresh);
+    return () => {
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', refresh);
+    };
+  }, [hydrateSaved]);
+
   const handleLogout = () => {
     // Clear hydrate flags so the next user's session starts a fresh sync.
     resetHydration();
