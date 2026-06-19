@@ -30,23 +30,22 @@ export default function SavedPage() {
           </span>
         </div>
 
+        {/* Audio source — visually hidden iframe, mounted only when on so the
+            stream actually starts. We keep the iframe at real dimensions and
+            push it off-screen instead of `display:none`, because some browsers
+            suspend hidden iframes' audio. The user sees the animated radio +
+            soundwaves; they hear the lofi stream. */}
         {radioOn && (
-          <div className="saved-radio-frame">
+          <div className="saved-radio-audio" aria-hidden="true">
             <iframe
               src={RADIO_EMBED_URL}
-              title="Lofi radio"
-              width="100%"
-              height="170"
+              title="Lofi radio audio"
+              width="320"
+              height="180"
               frameBorder="0"
-              allow="autoplay; encrypted-media; picture-in-picture"
-              allowFullScreen
+              allow="autoplay; encrypted-media"
+              tabIndex={-1}
             />
-            <button
-              type="button"
-              className="saved-radio-close"
-              onClick={() => setRadioOn(false)}
-              title="Turn radio off"
-            >✕ off</button>
           </div>
         )}
       </aside>

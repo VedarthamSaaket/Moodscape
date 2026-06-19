@@ -31,7 +31,7 @@
 }
 
 .pixel-radio__svg {
-  width: 260px;
+  width: 210px;
   height: auto;
   image-rendering: pixelated;
   image-rendering: -moz-crisp-edges;
@@ -41,7 +41,17 @@
 }
 
 .pixel-radio--on .pixel-radio__svg {
-  filter: drop-shadow(0 0 6px rgba(126, 240, 122, 0.18));
+  filter: drop-shadow(0 0 8px rgba(126, 232, 184, 0.22));
+}
+
+/* The whole radio bobs gently when on, like a speaker pushing against a
+   shelf. Subtle — most of the visible motion lives in the speakers/LEDs. */
+.pixel-radio--on {
+  animation: pr-radio-bob 1.1s ease-in-out infinite;
+}
+@keyframes pr-radio-bob {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-2px); }
 }
 
 /* ── Hint chip — only visible when radio is off ─────────────────────────── */
@@ -129,6 +139,27 @@
   50%      { transform: scale(1.015); }
 }
 
+/* ── Soundwaves emanating from speakers ─────────────────────────────────── */
+.pr-wave {
+  stroke-width: 0.7;
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: pr-wave-pulse 1.4s ease-out infinite;
+}
+.pr-wave-0 { animation-delay: 0.00s; }
+.pr-wave-1 { animation-delay: 0.18s; }
+.pr-wave-2 { animation-delay: 0.36s; }
+.pr-wave-3 { animation-delay: 0.05s; }
+.pr-wave-4 { animation-delay: 0.23s; }
+.pr-wave-5 { animation-delay: 0.41s; }
+
+@keyframes pr-wave-pulse {
+  0%   { opacity: 0;   transform: scale(0.55); }
+  35%  { opacity: 0.95; }
+  100% { opacity: 0;   transform: scale(1.45); }
+}
+
 /* ── Respect reduced-motion preferences ─────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
   .pr-reel--on,
@@ -136,6 +167,8 @@
   .pr-antenna-tip,
   .pr-vu,
   .pr-speaker--on,
+  .pr-wave,
+  .pixel-radio--on,
   .pixel-radio__hint {
     animation: none !important;
   }

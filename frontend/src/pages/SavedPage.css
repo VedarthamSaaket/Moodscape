@@ -30,9 +30,12 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 18px;
+  gap: 14px;
   position: sticky;
-  top: 24px;
+  /* Sit roughly level with the song-list rows instead of pinned to the very
+     top of the page — feels less floaty against the header. */
+  top: 140px;
+  padding-top: 24px;
 }
 
 @media (max-width: 880px) {
@@ -48,61 +51,44 @@
   align-items: center;
   gap: 4px;
   text-align: center;
-  padding-top: 6px;
+  padding-top: 4px;
 }
 .saved-radio-eyebrow {
   font-family: var(--font-mono, monospace);
-  font-size: 0.6rem;
+  font-size: 0.58rem;
   letter-spacing: 0.28em;
   text-transform: uppercase;
-  color: rgba(240, 220, 160, 0.8);
+  color: rgba(126, 232, 184, 0.78);
 }
 .saved-radio-title {
   font-family: var(--font-mono, monospace);
-  font-size: 0.78rem;
+  font-size: 0.74rem;
   letter-spacing: 0.06em;
   color: rgba(226, 240, 252, 0.96);
 }
 .saved-radio-sub {
-  font-size: 0.72rem;
+  font-size: 0.7rem;
   color: rgba(174, 206, 230, 0.65);
-  max-width: 24ch;
+  max-width: 22ch;
   line-height: 1.4;
 }
 
-.saved-radio-frame {
-  position: relative;
-  width: 100%;
-  border: 1px solid rgba(180, 160, 110, 0.35);
-  border-radius: 6px;
-  background: rgba(8, 6, 14, 0.7);
-  padding: 6px;
-  box-shadow:
-    inset 0 0 0 1px rgba(255, 220, 140, 0.06),
-    0 10px 22px rgba(0, 0, 0, 0.45);
+/* Visually-hidden audio host. Keeps the iframe in the DOM at real dimensions
+   so the browser doesn't suspend its audio context, but positions it off-
+   screen so the user never actually sees the YouTube video. */
+.saved-radio-audio {
+  position: fixed;
+  left: -10000px;
+  top: 0;
+  width: 320px;
+  height: 180px;
+  opacity: 0;
+  pointer-events: none;
+  overflow: hidden;
 }
-.saved-radio-frame iframe {
+.saved-radio-audio iframe {
   display: block;
-  border-radius: 4px;
-}
-.saved-radio-close {
-  position: absolute;
-  top: -10px;
-  right: -6px;
-  font-family: var(--font-mono, monospace);
-  font-size: 0.6rem;
-  letter-spacing: 0.16em;
-  padding: 2px 8px;
-  border-radius: 2px;
-  border: 1px solid rgba(220, 120, 110, 0.5);
-  background: rgba(40, 14, 14, 0.85);
-  color: rgba(240, 200, 190, 0.95);
-  cursor: pointer;
-  text-transform: uppercase;
-}
-.saved-radio-close:hover {
-  background: rgba(80, 24, 24, 0.95);
-  color: #ffd9d2;
+  border: 0;
 }
 
 /* Main column wraps the existing header + list. */
