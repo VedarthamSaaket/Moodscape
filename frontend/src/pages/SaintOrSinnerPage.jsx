@@ -329,6 +329,12 @@ function JudgeStep({ figure, value, onChange, onLock }) {
         ))}
       </ul>
 
+      {figure.example && (
+        <p className="sns-example" style={{ '--i': figure.traits.length }}>
+          <span className="sns-example-label">For example —</span> {figure.example}
+        </p>
+      )}
+
       <div className="sns-slider-block">
         <div className="sns-slider-ends">
           <span className="sns-end sns-end-low">{SPECTRUM.low}</span>

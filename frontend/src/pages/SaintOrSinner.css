@@ -274,6 +274,28 @@
   background: linear-gradient(120deg, var(--rg) 0%, var(--mist) 100%);
 }
 
+/* Concrete example shown beneath the trait list — one short vignette
+   that earths the abstract personality reads in a specific behaviour. */
+.sns-example {
+  margin: 0 0 2.2rem;
+  padding: 0.9rem 1.1rem;
+  border-left: 2px solid var(--mist, #8aa3b8);
+  background: rgba(138, 163, 184, 0.06);
+  border-radius: 0 6px 6px 0;
+  font-family: var(--font-body);
+  font-size: 1rem;
+  line-height: 1.55;
+  color: var(--text-2, #c8d3da);
+  animation: cardIn 0.5s var(--ease, cubic-bezier(0.16, 1, 0.3, 1)) both;
+  animation-delay: calc(var(--i, 0) * 80ms + 80ms);
+}
+.sns-example-label {
+  font-weight: 600;
+  color: var(--rg, #9ab8cc);
+  margin-right: 0.4rem;
+  letter-spacing: 0.02em;
+}
+
 /* Compact variant reused on the guess step so the traits stay visible. */
 .sns-traits-compact {
   gap: 0.5rem;
