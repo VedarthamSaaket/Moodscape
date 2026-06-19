@@ -165,16 +165,35 @@ function VuBars({ x, y, on }) {
   );
 }
 
-// Floating music notes drifting up from above the radio. Each note glyph
-// gets a slightly different start position, delay, and drift angle.
+// Floating music notes drifting outward from all four sides of the radio.
+// Each glyph has its own size (kept in a petite 2.6..4.2 SVG-unit range —
+// the radio itself is small, the wash of notes should be cuter than it),
+// start position, stagger delay, and drift direction (`side`):
+//
+//   top    — drifts up-and-slightly-swaying
+//   bottom — drifts down
+//   left   — drifts out to the left
+//   right  — drifts out to the right
 function MusicNotes() {
   const notes = [
-    { ch: '♪', x: 18, y: 0,  delay: '0s'   },
-    { ch: '♫', x: 32, y: 2,  delay: '0.9s' },
-    { ch: '♩', x: 9,  y: 4,  delay: '1.8s' },
-    { ch: '♬', x: 40, y: 1,  delay: '2.6s' },
-    { ch: '♪', y: 5,  x: 26, delay: '3.4s' },
+    // ── Top edge ─────────────────────────────────────────────
+    { ch: '♪', x: 14, y: 7,  size: 3.4, side: 'up',    delay: '0s'   },
+    { ch: '♫', x: 24, y: 5,  size: 2.8, side: 'up',    delay: '0.7s' },
+    { ch: '♬', x: 34, y: 8,  size: 4.0, side: 'up',    delay: '1.4s' },
+    // ── Right edge ───────────────────────────────────────────
+    { ch: '♩', x: 47, y: 19, size: 3.0, side: 'right', delay: '0.3s' },
+    { ch: '♪', x: 48, y: 28, size: 4.2, side: 'right', delay: '1.1s' },
+    { ch: '♫', x: 47, y: 35, size: 2.6, side: 'right', delay: '1.9s' },
+    // ── Bottom edge ──────────────────────────────────────────
+    { ch: '♬', x: 14, y: 42, size: 2.8, side: 'down',  delay: '0.5s' },
+    { ch: '♪', x: 25, y: 43, size: 3.6, side: 'down',  delay: '1.3s' },
+    { ch: '♩', x: 36, y: 42, size: 3.0, side: 'down',  delay: '2.1s' },
+    // ── Left edge ────────────────────────────────────────────
+    { ch: '♫', x: 2,  y: 22, size: 3.2, side: 'left',  delay: '0.9s' },
+    { ch: '♪', x: 1,  y: 30, size: 4.0, side: 'left',  delay: '1.7s' },
+    { ch: '♬', x: 2,  y: 36, size: 2.6, side: 'left',  delay: '2.5s' },
   ];
+
   return (
     <g className="pr-notes">
       {notes.map((n, i) => (
@@ -183,9 +202,9 @@ function MusicNotes() {
           x={n.x}
           y={n.y}
           fill={C.note}
-          fontSize="3.2"
+          fontSize={n.size}
           textAnchor="middle"
-          className={`pr-note pr-note-${i}`}
+          className={`pr-note pr-note--${n.side}`}
           style={{ animationDelay: n.delay }}
         >
           {n.ch}
