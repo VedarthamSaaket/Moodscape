@@ -57,6 +57,19 @@ _FILLER_WORDS = {
 }
 
 
+def _squish(s: str) -> str:
+    """
+    Collapse a string to its compact form for substring comparison: lowercase,
+    strip ALL hyphens and ALL whitespace. So "K-Pop", "k pop", "kpop" all
+    normalise to "kpop"; "lo-fi" / "lo fi" / "lofi" all to "lofi"; "hindi
+    indie pop" to "hindiindiepop". Lets the genre-tag and query-text matchers
+    bridge user typos / spacing without us maintaining synonyms.
+    """
+    if not s:
+        return ""
+    return re.sub(r"[\s\-]+", "", str(s).lower())
+
+
 def _atomise(phrase: str) -> str:
     """
     Reduce a user phrase to its meaningful keyword atom.
@@ -145,7 +158,7 @@ class Exclusions:
     IS the source of truth.
     """
 
-    __slots__ = ("keywords", "_kw_res", "_kw_substr_res")
+    __slots__ = ("keywords", "_keywords_squished", "_kw_res")
 
     def __init__(self, keywords: Iterable[str]):
         cleaned: set = set()
@@ -160,18 +173,15 @@ class Exclusions:
                 cleaned.add(raw)
         self.keywords = cleaned
 
-        # Two regex flavours:
-        #  * Word-boundary-ish for track metadata (so "pop" matches the word
-        #    "pop" but not "popular").
-        #  * Plain substring for Spotify genre tags + query bank strings,
-        #    where partial matches are desired ("hindi" in "hindi indie pop",
-        #    "rap" in "trap rap deep cuts").
+        # SQUISHED variants used for substring matching against Spotify genre
+        # tags and search-query strings. Collapse hyphens/whitespace so
+        # "kpop" <-> "k-pop" <-> "k pop" all hit, "lofi" <-> "lo-fi" <-> "lo
+        # fi", etc. Track-metadata matching stays word-bounded on the raw
+        # form (we don't want a stray "pop" inside "popular").
+        self._keywords_squished = {_squish(k) for k in self.keywords if _squish(k)}
         self._kw_res = [
             re.compile(r"(?<![a-z])" + re.escape(k) + r"(?![a-z])", re.IGNORECASE)
             for k in self.keywords
-        ]
-        self._kw_substr_res = [
-            re.compile(re.escape(k), re.IGNORECASE) for k in self.keywords
         ]
 
     def __bool__(self) -> bool:
@@ -188,27 +198,33 @@ class Exclusions:
 
     def matches_any_genre_tag(self, tags: Optional[Iterable[str]]) -> bool:
         """
-        True if ANY supplied Spotify genre tag string contains ANY keyword.
-        Substring match (not word-bounded), because genre tags are themselves
-        compound strings like "modern bollywood" or "hindi indie pop" that
-        the user's atomised keyword should hit by substring.
+        True if ANY supplied Spotify genre tag string contains ANY keyword,
+        after collapsing hyphens/whitespace on both sides. So a user keyword
+        "kpop" hits Spotify's tag "k-pop", "lofi" hits "lo-fi", "hindi pop"
+        hits "hindi-pop" / "hindipop", etc.
         """
-        if not self._kw_substr_res or not tags:
+        if not self._keywords_squished or not tags:
             return False
         for tag in tags:
             if not tag:
                 continue
-            tag_l = str(tag).lower()
-            if any(rx.search(tag_l) for rx in self._kw_substr_res):
+            sq = _squish(tag)
+            if sq and any(k in sq for k in self._keywords_squished):
                 return True
         return False
 
     def matches_query_text(self, query: str) -> bool:
-        """Substring match against a single search query string."""
-        if not self._kw_substr_res or not query:
+        """
+        Substring match against a single search query string, using the same
+        squish-normalised compare so "kpop" suppresses queries containing
+        "k-pop" or "k pop".
+        """
+        if not self._keywords_squished or not query:
             return False
-        q = str(query).lower()
-        return any(rx.search(q) for rx in self._kw_substr_res)
+        sq = _squish(query)
+        if not sq:
+            return False
+        return any(k in sq for k in self._keywords_squished)
 
 
 def build_exclusions(disliked_genres: Optional[Iterable[str]],
