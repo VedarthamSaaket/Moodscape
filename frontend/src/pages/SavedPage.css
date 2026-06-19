@@ -1,13 +1,113 @@
-/* Saved Songs page — sits inside GeneratorLayout, above the shared dither bg. */
+/* Saved Songs page — sits inside GeneratorLayout, above the shared dither bg.
+   Two-column layout: pixel-art radio on the left (sticky), saved-songs list
+   on the right. Stacks below the breakpoint so the radio sits above the list
+   on narrow viewports. */
 .saved-page {
   position: relative;
   z-index: 1;
   width: 100%;
-  max-width: 760px;
+  max-width: 1100px;
   margin: 0 auto;
   padding: 8px 24px 40px;
   font-family: var(--font-body);
   color: var(--parch, #dce8f0);
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  gap: 36px;
+  align-items: start;
+}
+
+@media (max-width: 880px) {
+  .saved-page {
+    grid-template-columns: 1fr;
+    gap: 28px;
+    max-width: 760px;
+  }
+}
+
+/* ── Radio column ─────────────────────────────────────────────────────── */
+.saved-radio-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  position: sticky;
+  top: 24px;
+}
+
+@media (max-width: 880px) {
+  .saved-radio-col {
+    position: static;
+    padding-top: 6px;
+  }
+}
+
+.saved-radio-caption {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+  padding-top: 6px;
+}
+.saved-radio-eyebrow {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.6rem;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: rgba(240, 220, 160, 0.8);
+}
+.saved-radio-title {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  color: rgba(226, 240, 252, 0.96);
+}
+.saved-radio-sub {
+  font-size: 0.72rem;
+  color: rgba(174, 206, 230, 0.65);
+  max-width: 24ch;
+  line-height: 1.4;
+}
+
+.saved-radio-frame {
+  position: relative;
+  width: 100%;
+  border: 1px solid rgba(180, 160, 110, 0.35);
+  border-radius: 6px;
+  background: rgba(8, 6, 14, 0.7);
+  padding: 6px;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 220, 140, 0.06),
+    0 10px 22px rgba(0, 0, 0, 0.45);
+}
+.saved-radio-frame iframe {
+  display: block;
+  border-radius: 4px;
+}
+.saved-radio-close {
+  position: absolute;
+  top: -10px;
+  right: -6px;
+  font-family: var(--font-mono, monospace);
+  font-size: 0.6rem;
+  letter-spacing: 0.16em;
+  padding: 2px 8px;
+  border-radius: 2px;
+  border: 1px solid rgba(220, 120, 110, 0.5);
+  background: rgba(40, 14, 14, 0.85);
+  color: rgba(240, 200, 190, 0.95);
+  cursor: pointer;
+  text-transform: uppercase;
+}
+.saved-radio-close:hover {
+  background: rgba(80, 24, 24, 0.95);
+  color: #ffd9d2;
+}
+
+/* Main column wraps the existing header + list. */
+.saved-main {
+  min-width: 0;
 }
 
 .saved-head {
