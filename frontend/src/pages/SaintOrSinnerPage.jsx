@@ -418,6 +418,13 @@ function SpectrumBar({ you, world, worldColor }) {
 
 function Summary({ results, onReplay, vibeScore, rank, runs }) {
   const { accuracy, total, read, lean } = summarise(results);
+  // Σ |you − world| across the round — how far off the public mood you
+  // landed, summed up. Surfaced next to accuracy so the user sees the raw
+  // deviation total, not just the averaged percentage.
+  const totalGap = results.reduce(
+    (s, r) => s + Math.abs(r.user - r.reputation),
+    0,
+  );
   return (
     <div className="quiz-result">
       <div className="quiz-result-eyebrow">The verdict on your judgement</div>
@@ -428,6 +435,10 @@ function Summary({ results, onReplay, vibeScore, rank, runs }) {
         <div className="sns-score">
           <span className="sns-score-num">{accuracy}%</span>
           <span className="sns-score-label">Read the room</span>
+        </div>
+        <div className="sns-score">
+          <span className="sns-score-num">±{totalGap}</span>
+          <span className="sns-score-label">Off the public, summed</span>
         </div>
         <div className="sns-score">
           <span className="sns-score-num">{total}</span>

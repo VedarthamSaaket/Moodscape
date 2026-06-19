@@ -586,14 +586,15 @@
   justify-content: space-between;
   gap: 1rem;
   padding: 0.7rem 0;
-  border-bottom: 1px solid rgba(220, 232, 240, 0.06);
+  border-bottom: 1px solid rgba(220, 232, 240, 0.18);
 }
 
 .sns-recap-name {
   font-family: var(--font-display);
   font-style: italic;
-  font-size: 1.15rem;
-  color: var(--parch);
+  font-size: 1.2rem;
+  color: var(--parch, #dce8f0);
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.6);
 }
 
 .sns-recap-nums {
@@ -601,10 +602,11 @@
   align-items: center;
   gap: 0.7rem;
   font-family: var(--font-mono);
-  font-size: 0.62rem;
+  font-size: 0.78rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--text-3);
+  color: rgba(220, 232, 240, 0.82);
+  text-shadow: 0 1px 5px rgba(0, 0, 0, 0.55);
 }
 
 .sns-recap-gap[data-close='yes'] { color: #9fd8b4; }
