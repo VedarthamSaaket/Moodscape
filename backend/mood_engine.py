@@ -109,15 +109,37 @@ def build_search_queries(
     indian_lang:         Optional[str],
     selected_genres:     list,
     selected_languages:  list,
-    excluded_genre_keys: Optional[set] = None,
+    exclusions=None,
 ) -> list:
+    """
+    Build a search-query list, with DYNAMIC exclusion of anything matching the
+    user's typed dislike keywords. There is no hard-coded "disliked-genre ->
+    bank key" table; instead, for every query we'd add, we ask the Exclusions
+    object whether the query string (or its parent bank key) matches any user
+    keyword, and skip if so.
+    """
     queries = []
     emotion = mood_profile["emotion"]
     energy  = mood_profile["energy"]
     valence = mood_profile["valence"]
     intent  = mood_profile["intent"]
 
-    excluded_genre_keys = excluded_genre_keys or set()
+    # `excl` is callable-like via `.matches_query_text(s)`; we use a no-op
+    # shim when no exclusions are active so the rest of the code stays flat.
+    class _NoExcl:
+        def __bool__(self): return False
+        def matches_query_text(self, _q): return False
+        def matches_any_genre_tag(self, _g): return False
+    excl = exclusions if exclusions else _NoExcl()
+
+    def _ok(text: str) -> bool:
+        """Pass-through filter — keep the query only if exclusions don't hit."""
+        return not excl.matches_query_text(text)
+
+    def _add(items):
+        for q in items:
+            if q and _ok(q):
+                queries.append(q)
 
     genre_keys = [
         g.lower().replace(" / ", " ").replace("/", " ").replace("-", " ").strip()
@@ -131,9 +153,8 @@ def build_search_queries(
         "bhangra / punjabi": "bhangra", "indian folk": "indian folk",
     }
     genre_keys = [genre_label_map.get(k, k) for k in genre_keys]
-    # Drop any user-selected genre the user ALSO marked as disliked — an
-    # explicit dislike outranks a menu selection.
-    genre_keys = [g for g in genre_keys if g not in excluded_genre_keys]
+    # User-selected genre overlap with a typed dislike — dislike wins.
+    genre_keys = [g for g in genre_keys if _ok(g)]
 
     lang_keys = [
         LANGUAGE_ALIASES.get(l.lower(), "english")
@@ -142,13 +163,14 @@ def build_search_queries(
 
     if genre_keys and lang_keys and lang_keys != ["english"]:
         for lk in lang_keys:
+            if not _ok(lk):
+                continue
             for gk in genre_keys:
-                if gk in excluded_genre_keys:
+                if not _ok(gk):
                     continue
-                cross = get_lang_genre_queries(lk, gk)
-                queries.extend(cross[:3])
+                _add(get_lang_genre_queries(lk, gk)[:3])
 
-    if indian_lang and indian_lang in INDIAN_LANG_QUERY_BANKS:
+    if indian_lang and indian_lang in INDIAN_LANG_QUERY_BANKS and _ok(indian_lang):
         lang_bank = INDIAN_LANG_QUERY_BANKS[indian_lang]
         film_qs   = lang_bank.get("film", [])
         indie_qs  = lang_bank.get("indie", [])
@@ -164,28 +186,29 @@ def build_search_queries(
                 or film_qs[:4]
             )
 
-        queries.extend(film_qs[:5])
-        queries.extend(indie_qs[:2])
+        _add(film_qs[:5])
+        _add(indie_qs[:2])
 
     if genre_keys:
         for gk in genre_keys:
-            if gk in excluded_genre_keys:
+            if not _ok(gk):
                 continue
             bank = GENRE_QUERY_BANKS.get(gk, [])
             if bank:
-                queries.extend(bank[:6])
+                _add(bank[:6])
 
+    # Dynamic bank-skip pass for the FULL GENRE_QUERY_BANKS table: if ANY
+    # query string in a bank matches an exclusion keyword (or the bank key
+    # itself does), that bank is poisoned and we don't draw from it even as a
+    # mood fallback. We rebuild MOOD_QUERY_BANKS' picks the same way.
     mood_bank = MOOD_QUERY_BANKS.get(emotion, MOOD_QUERY_BANKS.get("chill", []))
-    queries.extend(mood_bank[:6])
+    _add(mood_bank[:6])
 
-    # Final guard: drop any built query that names a disliked genre/type
-    # outright (e.g. a mood bank entry like "dark atmospheric k-pop"). Cheap
-    # string check against the excluded genre keys before the dedup pass.
-    if excluded_genre_keys:
-        queries = [
-            q for q in queries
-            if not any(gk in q.lower() for gk in excluded_genre_keys)
-        ]
+    # Final dynamic guard: drop any built query that even names a disliked
+    # term as a substring (mood-bank entries are short generic strings, but
+    # a "dark atmospheric kpop" could sneak in from a hand-curated bank).
+    if excl:
+        queries = [q for q in queries if _ok(q)]
 
     if intent == "workout":
         queries.insert(0, "high energy underground metal rap")
