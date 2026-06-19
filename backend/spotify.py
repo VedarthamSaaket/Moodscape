@@ -74,6 +74,12 @@ def get_spotify_user_profile(token: str):
 
 def normalise_track(t: dict) -> dict:
     album_images = t.get("album", {}).get("images", []) if "album" in t else []
+    # Stash the primary artist id so a later batched `/v1/artists` call can
+    # fetch genre tags for the dynamic exclusion filter. Frontend ignores
+    # unknown fields.
+    artist_id = ""
+    if t.get("artists") and isinstance(t["artists"], list) and t["artists"]:
+        artist_id = t["artists"][0].get("id", "") or ""
     return {
         "title":      t["name"],
         "artist":     t["artists"][0]["name"] if t.get("artists") else "Unknown",
@@ -81,7 +87,112 @@ def normalise_track(t: dict) -> dict:
         "spotifyUrl": t.get("external_urls", {}).get("spotify", ""),
         "previewUrl": t.get("preview_url"),
         "uri":        t.get("uri", ""),
+        "artistId":   artist_id,
     }
+
+
+# In-process cache for artist-genre lookups. Spotify artist genres are stable
+# enough that we can keep them around for the lifetime of the process. Keyed by
+# Spotify artist id, value is a tuple of genre tag strings (immutable so set()
+# membership tests stay fast).
+_artist_genre_cache: dict[str, tuple] = {}
+_artist_genre_lock = threading.Lock()
+
+
+def fetch_artist_genres_batch(token: str, artist_ids: list) -> dict[str, tuple]:
+    """
+    Batch-fetch Spotify's `genres` array for each artist id. Returns
+    {artist_id: (genre_tag, ...)}. Empty tuple for artists Spotify has no
+    genre tags for. Chunked at 50 ids per request (Spotify's hard max for the
+    `/v1/artists?ids=` endpoint). Caches results in-process.
+    """
+    out: dict[str, tuple] = {}
+    if not artist_ids:
+        return out
+
+    to_fetch: list = []
+    with _artist_genre_lock:
+        for aid in artist_ids:
+            if not aid:
+                continue
+            cached = _artist_genre_cache.get(aid)
+            if cached is not None:
+                out[aid] = cached
+            else:
+                to_fetch.append(aid)
+
+    if not to_fetch:
+        return out
+
+    seen: set = set()
+    deduped = [a for a in to_fetch if not (a in seen or seen.add(a))]
+
+    for i in range(0, len(deduped), 50):
+        chunk = deduped[i:i + 50]
+        try:
+            res = requests.get(
+                "https://api.spotify.com/v1/artists",
+                headers={"Authorization": f"Bearer {token}"},
+                params={"ids": ",".join(chunk)},
+                timeout=8,
+            )
+            if res.status_code != 200:
+                logger.warning(f"[ARTIST_GENRES] HTTP {res.status_code}: {res.text[:120]}")
+                # Cache empty for this chunk so we don't re-hit a failing call
+                # in a loop; the worst case is we filter less for these ids.
+                with _artist_genre_lock:
+                    for aid in chunk:
+                        _artist_genre_cache.setdefault(aid, ())
+                        out.setdefault(aid, ())
+                continue
+            data = res.json() or {}
+            for art in (data.get("artists") or []):
+                if not art:
+                    continue
+                aid = art.get("id", "")
+                tags = tuple(g.lower() for g in (art.get("genres") or []))
+                if aid:
+                    with _artist_genre_lock:
+                        _artist_genre_cache[aid] = tags
+                    out[aid] = tags
+        except Exception as exc:
+            logger.warning(f"[ARTIST_GENRES] fetch error: {exc}")
+            with _artist_genre_lock:
+                for aid in chunk:
+                    _artist_genre_cache.setdefault(aid, ())
+                    out.setdefault(aid, ())
+
+    return out
+
+
+def _filter_by_artist_genres(tracks: list, token: str, exclusions) -> list:
+    """
+    Drop any track whose primary artist's Spotify genre tags match a user
+    dislike keyword. This is the DYNAMIC translation step: we don't need our
+    own genre dictionary because Spotify already tags artists with the
+    canonical genre vocabulary they actually belong to.
+    """
+    if not exclusions or not tracks:
+        return tracks
+
+    artist_ids = [t.get("artistId", "") for t in tracks if t.get("artistId")]
+    if not artist_ids:
+        return tracks
+
+    genres_by_artist = fetch_artist_genres_batch(token, artist_ids)
+
+    kept = []
+    dropped = 0
+    for t in tracks:
+        aid = t.get("artistId", "")
+        tags = genres_by_artist.get(aid, ())
+        if tags and exclusions.matches_any_genre_tag(tags):
+            dropped += 1
+            continue
+        kept.append(t)
+    if dropped:
+        logger.info(f"[DISLIKE] artist-genre filter dropped {dropped} track(s)")
+    return kept
 
 
 def search_tracks_by_query(token: str, query: str, market: str, limit: int = 30) -> list:
@@ -259,7 +370,6 @@ def get_recommendations_for_bucket(
     market     = lang_cfg.get("market", "US")
     all_tracks = []
     keep       = make_track_filter(exclusions)          # predicate: True = keep
-    excl_keys  = exclusions.genre_keys if exclusions else set()
 
     if movie_name and indian_lang:
         raw = search_movie_album(token, movie_name, indian_lang)
@@ -270,11 +380,14 @@ def get_recommendations_for_bucket(
                 dedup.register(uri, artist)
                 all_tracks.append(t)
         if len(all_tracks) >= track_count:
+            # Even movie-soundtrack tracks get the artist-genre dynamic filter,
+            # so a user who excludes a language still has it honoured here.
+            all_tracks = _filter_by_artist_genres(all_tracks, token, exclusions)
             return all_tracks[:track_count]
 
     queries = build_search_queries(
         mood_profile, lang_cfg, indian_lang, selected_genres, selected_languages,
-        excluded_genre_keys=excl_keys,
+        exclusions=exclusions,
     )
     logger.info(f"[QUERIES] {queries[:6]}")
 
@@ -285,8 +398,9 @@ def get_recommendations_for_bucket(
             for t in raw:
                 uri    = t.get("uri", "")
                 artist = t["artists"][0]["name"] if t.get("artists") else ""
-                # Filter against dislikes on the RAW item (has album + artists),
-                # so a disliked keyword in any of title/artist/album drops it.
+                # Cheap metadata text filter at fetch time. The richer artist-
+                # genre-tag filter runs once at the end of the bucket on the
+                # accumulated candidate pool (one batched API call).
                 if uri and dedup.is_allowed(uri, artist) and keep(t):
                     result.append(normalise_track(t))
             return result
@@ -295,6 +409,9 @@ def get_recommendations_for_bucket(
             return []
 
     futures = {_GLOBAL_EXECUTOR.submit(fetch_query, q): q for q in queries}
+    # When exclusions are active we over-fetch so the artist-genre drop step
+    # at the end still leaves enough tracks to hit `track_count`.
+    target_pool = track_count * (3 if exclusions else 2)
     try:
         for future in as_completed(futures, timeout=15):
             for t in future.result():
@@ -303,10 +420,16 @@ def get_recommendations_for_bucket(
                 if uri and dedup.is_allowed(uri, artist) and keep(t):
                     dedup.register(uri, artist)
                     all_tracks.append(t)
-            if len(all_tracks) >= track_count * 2:
+            if len(all_tracks) >= target_pool:
                 break
     except FutureTimeoutError:
         logger.warning("[TIMEOUT] get_recommendations_for_bucket timed out after 15s")
+
+    # Dynamic translation step — Spotify's own artist-genre tags do the work
+    # of mapping a user's typed exclusion ("rap", "hindi", "k-pop") to the
+    # tracks that actually belong to that genre, without us maintaining any
+    # canonical-vocabulary table on our side.
+    all_tracks = _filter_by_artist_genres(all_tracks, token, exclusions)
 
     random.shuffle(all_tracks)
     return all_tracks[:track_count]
