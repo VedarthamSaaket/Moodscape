@@ -1,7 +1,7 @@
-/* PixelRadio — the chunky 90s boombox on the Saved page.
-   Renders crisp at any size because the SVG is on a 1px-tile grid and we keep
-   image-rendering pixelated. The on-state lights up LEDs, spins the cassette
-   reels, and pulses the LCD VU bars. */
+/* PixelRadio — small pixel-art boombox, app-palette navy/parchment/mint.
+   Rendered crisp at any size via shape-rendering on the SVG + pixelated
+   image-rendering. The on-state lights up LEDs, spins reels, bounces VU
+   bars, and floats music notes upward. */
 
 .pixel-radio {
   position: relative;
@@ -16,89 +16,79 @@
   filter:
     drop-shadow(0 6px 14px rgba(0, 0, 0, 0.55))
     drop-shadow(0 1px 0 rgba(255, 255, 255, 0.04));
-  transition: transform 0.18s ease, filter 0.18s ease;
+  transition: filter 0.18s ease;
 }
 
 .pixel-radio:hover {
-  transform: translateY(-2px);
   filter:
     drop-shadow(0 10px 18px rgba(0, 0, 0, 0.6))
-    drop-shadow(0 0 14px rgba(255, 196, 80, 0.18));
+    drop-shadow(0 0 14px rgba(126, 232, 184, 0.22));
 }
 
 .pixel-radio:active {
-  transform: translateY(0) scale(0.985);
+  transform: scale(0.985);
 }
 
 .pixel-radio__svg {
-  width: 210px;
+  width: 180px;
   height: auto;
   image-rendering: pixelated;
   image-rendering: -moz-crisp-edges;
   image-rendering: crisp-edges;
-  /* The shape-rendering attr on the <svg> does the heavy lifting; this is the
-     belt-and-braces for browsers that scale via CSS first. */
+  /* Notes drift above the body; let them spill past the SVG box without
+     clipping. */
+  overflow: visible;
 }
 
 .pixel-radio--on .pixel-radio__svg {
   filter: drop-shadow(0 0 8px rgba(126, 232, 184, 0.22));
 }
 
-/* The whole radio bobs gently when on, like a speaker pushing against a
-   shelf. Subtle — most of the visible motion lives in the speakers/LEDs. */
-.pixel-radio--on {
-  animation: pr-radio-bob 1.1s ease-in-out infinite;
+/* ── Pixel-y bob — discrete steps so it reads like sprite animation, not
+   like a smooth CSS transition. Two-step keyframes + `steps(1)` per frame
+   give it that Claude-pet snap. ───────────────────────────────────── */
+.pixel-radio--on .pixel-radio__svg {
+  animation: pr-radio-bob 0.5s steps(1, end) infinite;
 }
 @keyframes pr-radio-bob {
-  0%, 100% { transform: translateY(0); }
-  50%      { transform: translateY(-2px); }
+  0%   { transform: translateY(0); }
+  50%  { transform: translateY(-3px); }
+  100% { transform: translateY(0); }
 }
 
-/* ── Hint chip — only visible when radio is off ─────────────────────────── */
+/* ── Off-state hint chip ────────────────────────────────────────────── */
 .pixel-radio__hint {
   position: absolute;
   bottom: -14px;
   left: 50%;
   transform: translateX(-50%);
-  font-size: 0.66rem;
+  font-size: 0.62rem;
   letter-spacing: 0.18em;
   padding: 3px 9px;
-  border: 1px solid rgba(180, 160, 110, 0.45);
-  background: rgba(20, 16, 28, 0.75);
-  color: rgba(240, 220, 160, 0.9);
+  border: 1px solid rgba(126, 232, 184, 0.45);
+  background: rgba(8, 20, 24, 0.85);
+  color: rgba(126, 232, 184, 0.9);
   border-radius: 2px;
   text-transform: uppercase;
   animation: pr-hint-pulse 1.6s ease-in-out infinite;
 }
-
 @keyframes pr-hint-pulse {
   0%, 100% { opacity: 0.55; }
   50%      { opacity: 1; }
 }
 
-/* ── Cassette reels: spin when on ───────────────────────────────────────── */
-.pr-reel--on {
-  animation: pr-reel-spin 2.4s linear infinite;
-  transform-box: fill-box;
-}
-
-@keyframes pr-reel-spin {
-  to { transform: rotate(360deg); }
-}
-
-/* ── LED glow when on ───────────────────────────────────────────────────── */
+/* ── LEDs ───────────────────────────────────────────────────────────── */
 .pr-led {
   animation: pr-led-blink 1.4s ease-in-out infinite;
 }
 .pr-led--amber { animation-delay: 0.45s; }
 .pr-led--green { animation-delay: 0.9s; }
-
 @keyframes pr-led-blink {
   0%, 100% { opacity: 0.55; }
   50%      { opacity: 1; }
 }
 
-/* ── Antenna tip blink — like a radio tower beacon ──────────────────────── */
+/* ── Antenna tip beacon blink ───────────────────────────────────────── */
 .pr-antenna-tip {
   animation: pr-antenna-blink 1.8s ease-in-out infinite;
 }
@@ -107,28 +97,34 @@
   50%      { opacity: 1; }
 }
 
-/* ── VU bars: stagger a few different pulse phases ──────────────────────── */
+/* ── Tuner needle — gentle drift across the display ────────────────── */
+.pr-needle {
+  animation: pr-needle-drift 3.2s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+@keyframes pr-needle-drift {
+  0%, 100% { opacity: 0.55; }
+  50%      { opacity: 1; }
+}
+
+/* ── VU bars: stagger pulse phases ─────────────────────────────────── */
 .pr-vu {
   transform-box: fill-box;
   transform-origin: 50% 100%;
+  animation: pr-vu-bounce 0.7s ease-in-out infinite;
 }
-.pr-vu-0 { animation: pr-vu-bounce 0.7s ease-in-out infinite; }
-.pr-vu-1 { animation: pr-vu-bounce 0.9s ease-in-out infinite; }
-.pr-vu-2 { animation: pr-vu-bounce 1.1s ease-in-out infinite; }
-.pr-vu-3 { animation: pr-vu-bounce 0.6s ease-in-out infinite; }
-.pr-vu-4 { animation: pr-vu-bounce 1.3s ease-in-out infinite; }
-.pr-vu-0 { animation-delay: 0.0s; }
-.pr-vu-1 { animation-delay: 0.12s; }
-.pr-vu-2 { animation-delay: 0.24s; }
-.pr-vu-3 { animation-delay: 0.36s; }
-.pr-vu-4 { animation-delay: 0.48s; }
-
+.pr-vu-0 { animation-delay: 0s;    animation-duration: 0.7s; }
+.pr-vu-1 { animation-delay: 0.12s; animation-duration: 0.9s; }
+.pr-vu-2 { animation-delay: 0.24s; animation-duration: 1.1s; }
+.pr-vu-3 { animation-delay: 0.36s; animation-duration: 0.6s; }
+.pr-vu-4 { animation-delay: 0.48s; animation-duration: 1.3s; }
 @keyframes pr-vu-bounce {
   0%, 100% { transform: scaleY(0.55); opacity: 0.7; }
   50%      { transform: scaleY(1.0);  opacity: 1; }
 }
 
-/* ── Speaker subtle "thump" when on ─────────────────────────────────────── */
+/* ── Speaker subtle thump ─────────────────────────────────────────── */
 .pr-speaker--on {
   transform-box: fill-box;
   transform-origin: center;
@@ -136,39 +132,46 @@
 }
 @keyframes pr-speaker-thump {
   0%, 100% { transform: scale(1); }
-  50%      { transform: scale(1.015); }
+  50%      { transform: scale(1.02); }
 }
 
-/* ── Soundwaves emanating from speakers ─────────────────────────────────── */
-.pr-wave {
-  stroke-width: 0.7;
+/* ── Floating music notes ───────────────────────────────────────────
+   Tiny mint glyphs drift up + sway slightly + fade out. Each note has a
+   different delay/duration so they don't pulse in lockstep. Kept petite
+   on purpose — the radio is small, the wash of notes should be cuter
+   than the radio itself. */
+.pr-notes {
+  font-family: 'Segoe UI Symbol', 'Apple Symbols', system-ui, sans-serif;
+  pointer-events: none;
+}
+.pr-note {
   opacity: 0;
   transform-box: fill-box;
   transform-origin: center;
-  animation: pr-wave-pulse 1.4s ease-out infinite;
+  animation: pr-note-float 4.2s ease-in-out infinite;
 }
-.pr-wave-0 { animation-delay: 0.00s; }
-.pr-wave-1 { animation-delay: 0.18s; }
-.pr-wave-2 { animation-delay: 0.36s; }
-.pr-wave-3 { animation-delay: 0.05s; }
-.pr-wave-4 { animation-delay: 0.23s; }
-.pr-wave-5 { animation-delay: 0.41s; }
+.pr-note-0 { animation-duration: 4.0s; }
+.pr-note-1 { animation-duration: 4.6s; }
+.pr-note-2 { animation-duration: 3.8s; }
+.pr-note-3 { animation-duration: 5.0s; }
+.pr-note-4 { animation-duration: 4.4s; }
 
-@keyframes pr-wave-pulse {
-  0%   { opacity: 0;   transform: scale(0.55); }
-  35%  { opacity: 0.95; }
-  100% { opacity: 0;   transform: scale(1.45); }
+@keyframes pr-note-float {
+  0%   { opacity: 0;   transform: translate(0, 6px)  scale(0.7); }
+  20%  { opacity: 1;   transform: translate(-1px, 2px) scale(1.0); }
+  60%  { opacity: 0.85; transform: translate(1px, -6px) scale(0.95); }
+  100% { opacity: 0;   transform: translate(-1px, -12px) scale(0.7); }
 }
 
-/* ── Respect reduced-motion preferences ─────────────────────────────────── */
+/* ── Reduced-motion guard ──────────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
-  .pr-reel--on,
+  .pixel-radio--on .pixel-radio__svg,
   .pr-led,
   .pr-antenna-tip,
+  .pr-needle,
   .pr-vu,
   .pr-speaker--on,
-  .pr-wave,
-  .pixel-radio--on,
+  .pr-note,
   .pixel-radio__hint {
     animation: none !important;
   }
