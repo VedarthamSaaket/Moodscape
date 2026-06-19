@@ -104,17 +104,20 @@ def get_lang_genre_queries(lang_key: str, genre_key: str) -> list:
 
 
 def build_search_queries(
-    mood_profile:       dict,
-    lang_cfg:           dict,
-    indian_lang:        Optional[str],
-    selected_genres:    list,
-    selected_languages: list,
+    mood_profile:        dict,
+    lang_cfg:            dict,
+    indian_lang:         Optional[str],
+    selected_genres:     list,
+    selected_languages:  list,
+    excluded_genre_keys: Optional[set] = None,
 ) -> list:
     queries = []
     emotion = mood_profile["emotion"]
     energy  = mood_profile["energy"]
     valence = mood_profile["valence"]
     intent  = mood_profile["intent"]
+
+    excluded_genre_keys = excluded_genre_keys or set()
 
     genre_keys = [
         g.lower().replace(" / ", " ").replace("/", " ").replace("-", " ").strip()
@@ -128,6 +131,9 @@ def build_search_queries(
         "bhangra / punjabi": "bhangra", "indian folk": "indian folk",
     }
     genre_keys = [genre_label_map.get(k, k) for k in genre_keys]
+    # Drop any user-selected genre the user ALSO marked as disliked — an
+    # explicit dislike outranks a menu selection.
+    genre_keys = [g for g in genre_keys if g not in excluded_genre_keys]
 
     lang_keys = [
         LANGUAGE_ALIASES.get(l.lower(), "english")
@@ -137,6 +143,8 @@ def build_search_queries(
     if genre_keys and lang_keys and lang_keys != ["english"]:
         for lk in lang_keys:
             for gk in genre_keys:
+                if gk in excluded_genre_keys:
+                    continue
                 cross = get_lang_genre_queries(lk, gk)
                 queries.extend(cross[:3])
 
@@ -161,12 +169,23 @@ def build_search_queries(
 
     if genre_keys:
         for gk in genre_keys:
+            if gk in excluded_genre_keys:
+                continue
             bank = GENRE_QUERY_BANKS.get(gk, [])
             if bank:
                 queries.extend(bank[:6])
 
     mood_bank = MOOD_QUERY_BANKS.get(emotion, MOOD_QUERY_BANKS.get("chill", []))
     queries.extend(mood_bank[:6])
+
+    # Final guard: drop any built query that names a disliked genre/type
+    # outright (e.g. a mood bank entry like "dark atmospheric k-pop"). Cheap
+    # string check against the excluded genre keys before the dedup pass.
+    if excluded_genre_keys:
+        queries = [
+            q for q in queries
+            if not any(gk in q.lower() for gk in excluded_genre_keys)
+        ]
 
     if intent == "workout":
         queries.insert(0, "high energy underground metal rap")

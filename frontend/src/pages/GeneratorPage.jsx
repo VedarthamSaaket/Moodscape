@@ -292,11 +292,28 @@ function SuggestButton({ track, token, playlistId, onAdded, moodText, selectedLa
   );
 }
 
+// Split a free-text dislikes string into normalised atoms. Kept loose enough
+// to accept commas, slashes, "and"/"or"/"nor" connectors, or semicolons — the
+// backend `exclusions` module re-canonicalises each atom against its synonym
+// table, so we don't need to be clever here.
+function parseDislikesField(raw) {
+  if (!raw) return [];
+  const parts = String(raw).split(/\s*(?:,|\/|\band\b|\bor\b|\bnor\b|;)\s*/i);
+  const cleaned = parts
+    .map((s) => s.trim().toLowerCase())
+    .filter((s) => s.length > 0 && s.length <= 40);
+  return Array.from(new Set(cleaned)).slice(0, 10);
+}
+
 export default function GeneratorPage() {
   const [moodText, setMoodText] = useState('');
   const [playlistName, setPlaylistName] = useState('');
   const [languages, setLanguages] = useState(['English']);
   const [genres, setGenres] = useState([]);
+  // Free-text list of genres / music types to exclude from this playlist.
+  // Comma-separated. Sent as `dislikedGenres` in the request body; the backend
+  // also greps the mood text for "i hate X" phrasings as a safety net.
+  const [dislikedText, setDislikedText] = useState('');
   const [trackCountRange, setTrackCountRange] = useState('15-30');
   const [filmIndustry, setFilmIndustry] = useState('');
   const [movieName, setMovieName] = useState('');
@@ -325,6 +342,12 @@ export default function GeneratorPage() {
       });
     }
 
+    // Carry the quiz-driven dislikes into the dedicated textbox — only if the
+    // user hasn't already typed something there. Don't overwrite their input.
+    if (Array.isArray(seed.dislikedGenres) && seed.dislikedGenres.length) {
+      setDislikedText((cur) => (cur && cur.trim()) ? cur : seed.dislikedGenres.join(', '));
+    }
+
     setStyleBanner({ name: seed.name || 'your style' });
     setStyleContext({
       id:         seed.archetype || null,
@@ -337,6 +360,7 @@ export default function GeneratorPage() {
     setMoodText('');
     setLanguages(['English']);
     setGenres([]);
+    setDislikedText('');
     setStyleBanner(null);
     setStyleContext(null);
     clearQuizStyle();
@@ -401,6 +425,7 @@ export default function GeneratorPage() {
         styleArchetypeName: styleContext?.name || null,
         styleVibePrompt:    styleContext?.vibePrompt || null,
         pinnedUris: (pinnedTracks || []).map((t) => t.uri).filter(Boolean),
+        dislikedGenres: parseDislikesField(dislikedText),
       };
 
       let activeToken = token;
@@ -609,6 +634,25 @@ export default function GeneratorPage() {
                 onChange={e => setMoodText(e.target.value)}
                 required
               />
+            </div>
+
+            <div className="gen-field">
+              <label className="gen-label">
+                Genres or music types to exclude{' '}
+                <span className="gen-label-optional">(optional, strict)</span>
+              </label>
+              <textarea
+                className="gen-textarea"
+                rows={2}
+                placeholder="e.g. mainstream pop, kpop, russian music, edm…"
+                value={dislikedText}
+                onChange={e => setDislikedText(e.target.value)}
+                maxLength={300}
+              />
+              <p className="gen-field-hint">
+                Anything you list here is strictly excluded from this playlist.
+                Separate multiples with commas.
+              </p>
             </div>
 
             <div className="gen-name-cover-row">

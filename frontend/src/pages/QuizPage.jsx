@@ -27,18 +27,22 @@ function QuizPage() {
     confidence,
     runnerUpConfidence,
     margin,
+    displayConfidence,
+    topMatches,
     completedAt,
     personalSeed,
+    dislikedGenres,
     recordAnswer,
     finalize,
     reset,
     setPendingStyleSeed,
     setPersonalSeed,
+    setDislikedGenres,
     setPinnedTracks,
     setQuizStyle,
   } = useQuizStore();
 
-  // Phases: intro → question(0..N-1) → seed → result.
+  // Phases: intro → question(0..N-1) → seed → dislikes → result.
   // If the user has a completed quiz on file, drop straight into the result.
   const [phase, setPhase] = useState(() => (completedAt ? 'result' : 'intro'));
   const [qIdx, setQIdx] = useState(0);
@@ -80,12 +84,19 @@ function QuizPage() {
         confidence:         result.confidence,
         runnerUpConfidence: result.runnerUpConfidence,
         margin:             result.margin,
+        displayConfidence:  result.displayConfidence,
+        topMatches:         result.topMatches,
       });
       advance(() => setPhase('seed'));
     } else {
       advance(() => setQIdx((i) => i + 1));
     }
   };
+
+  // Read the latest store snapshot at click-time. State setters from useStore()
+  // close over stale values otherwise — `dislikedGenres` was just set in the
+  // dislikes phase and we want THAT list folded into the seed.
+  const readStore = () => useQuizStore.getState();
 
   const handleBack = () => {
     if (qIdx === 0) {
@@ -112,10 +123,11 @@ function QuizPage() {
   const handleUseStyle = () => {
     if (!archetype) return;
     const style = {
-      archetype:  archetype.id,
-      name:       archetype.name,
-      vibePrompt: archetype.vibePrompt,
-      genres:     archetype.genreSeed,
+      archetype:      archetype.id,
+      name:           archetype.name,
+      vibePrompt:     archetype.vibePrompt,
+      genres:         archetype.genreSeed,
+      dislikedGenres: readStore().dislikedGenres || [],
     };
     setPinnedTracks([]);          // pure style, no song carry-over
     setPendingStyleSeed(style);   // one-shot form prefill
@@ -130,6 +142,26 @@ function QuizPage() {
     const pinned = (picked && picked.length > 0) ? picked : allTracks;
     setPinnedTracks(pinned || []);
     // Do NOT set pendingStyleSeed / quizStyle — songs only, no archetype gloss.
+    navigate('/generator');
+  };
+
+  // Button 3 — BOTH: apply the archetype style AND carry the songs into the
+  // next playlist in one shot. The style seed prefills the generator while the
+  // pinned tracks ride along, so generation is archetype-shaped and already
+  // seeded with the quiz picks.
+  const handleUseBoth = (allTracks, picked) => {
+    if (!archetype) return;
+    const style = {
+      archetype:      archetype.id,
+      name:           archetype.name,
+      vibePrompt:     archetype.vibePrompt,
+      genres:         archetype.genreSeed,
+      dislikedGenres: readStore().dislikedGenres || [],
+    };
+    const pinned = (picked && picked.length > 0) ? picked : allTracks;
+    setPinnedTracks(pinned || []);   // songs ride along (style does NOT clear them here)
+    setPendingStyleSeed(style);      // one-shot form prefill
+    setQuizStyle(style);             // persistent, survives the Spotify redirect
     navigate('/generator');
   };
 
@@ -165,8 +197,16 @@ function QuizPage() {
         {phase === 'seed' && (
           <SeedView
             initial={personalSeed}
-            onSubmit={(text) => { setPersonalSeed(text); advance(() => setPhase('result')); }}
-            onSkip={() => { setPersonalSeed(''); advance(() => setPhase('result')); }}
+            onSubmit={(text) => { setPersonalSeed(text); advance(() => setPhase('dislikes')); }}
+            onSkip={() => { setPersonalSeed(''); advance(() => setPhase('dislikes')); }}
+          />
+        )}
+
+        {phase === 'dislikes' && (
+          <DislikesView
+            initial={(dislikedGenres || []).join(', ')}
+            onSubmit={(text) => { setDislikedGenres(text); advance(() => setPhase('result')); }}
+            onSkip={() => { setDislikedGenres([]); advance(() => setPhase('result')); }}
           />
         )}
 
@@ -178,10 +218,13 @@ function QuizPage() {
             confidence={confidence}
             runnerUpConfidence={runnerUpConfidence}
             margin={margin}
+            displayConfidence={displayConfidence}
+            topMatches={topMatches}
             personalSeed={personalSeed}
             onRetake={handleRetake}
             onUseStyle={handleUseStyle}
             onAddSongs={handleAddSongsOnly}
+            onUseBoth={handleUseBoth}
           />
         )}
 
@@ -243,6 +286,40 @@ function SeedView({ initial, onSubmit, onSkip }) {
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => { if (e.key === 'Enter') onSubmit(text.trim()); }}
         maxLength={120}
+        autoFocus
+      />
+      <div className="quiz-intro-actions">
+        <button className="quiz-btn-primary" onClick={() => onSubmit(text.trim())}>
+          Reveal my vibe
+        </button>
+        <button className="quiz-btn-ghost" onClick={onSkip}>
+          Skip
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function DislikesView({ initial, onSubmit, onSkip }) {
+  const [text, setText] = useState(initial || '');
+  return (
+    <div className="quiz-intro quiz-seed-step">
+      <div className="quiz-intro-eyebrow">One last thing</div>
+      <h1 className="quiz-intro-title">
+        Any genre or music type<br />you can’t stand?
+      </h1>
+      <p className="quiz-intro-body">
+        Optional. Whatever you list here gets <em>strictly</em> excluded from
+        every playlist we shape from your style — separate multiples with commas.
+      </p>
+      <input
+        className="quiz-seed-input"
+        type="text"
+        placeholder="e.g. mainstream pop, kpop, russian music…"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Enter') onSubmit(text.trim()); }}
+        maxLength={200}
         autoFocus
       />
       <div className="quiz-intro-actions">
@@ -329,7 +406,7 @@ function QuestionView({ question, index, total, selectedId, onPick, onBack, imag
   );
 }
 
-function ResultView({ archetype, runnerUp, scores, confidence, runnerUpConfidence, margin, personalSeed, onRetake, onUseStyle, onAddSongs }) {
+function ResultView({ archetype, runnerUp, scores, confidence, margin, displayConfidence, topMatches, personalSeed, onRetake, onUseStyle, onAddSongs, onUseBoth }) {
   const accent = archetype.accent;
   const gradient = `linear-gradient(110deg, ${accent.from} 0%, ${accent.to} 100%)`;
   const textGradient = {
@@ -412,6 +489,13 @@ function ResultView({ archetype, runnerUp, scores, confidence, runnerUpConfidenc
     onAddSongs(allWithUri, picks);
   };
 
+  // Both — apply the archetype style AND carry the songs (picked, or all) over.
+  const handleBothClick = () => {
+    const picks = suggestions.filter((t) => t.spotifyUrl && selected.has(t.spotifyUrl));
+    const allWithUri = suggestions.filter((t) => t.spotifyUrl);
+    onUseBoth(allWithUri, picks);
+  };
+
   return (
     <div className="quiz-result">
       <div className="quiz-result-eyebrow">Your style reads as</div>
@@ -423,17 +507,42 @@ function ResultView({ archetype, runnerUp, scores, confidence, runnerUpConfidenc
         </p>
       )}
 
-      {Number.isFinite(confidence) && (
-        <p className="quiz-result-confidence">
-          {(() => {
-            const pct = Math.round(confidence * 100);
-            const m   = margin ?? 0;
-            const label =
-              m >= 0.20 ? 'Strong match' :
-              m >= 0.08 ? 'Clear lean'   :
-                          'Close lean';
-            return `${label} · ${pct}% certain`;
-          })()}
+      {(() => {
+        // The number we show is human-facing certainty (85-97), not the raw
+        // 9-way softmax. Older saved results predate displayConfidence — derive
+        // the same band from margin so they don't suddenly read differently.
+        let pct = displayConfidence;
+        if (!Number.isFinite(pct)) {
+          if (!Number.isFinite(confidence)) return null;
+          const m = Math.max(0, Math.min(1, (margin ?? 0) / 0.35));
+          pct = Math.round(85 + m * 11);
+        }
+        // A genuine blend — the quiz hovered between two-plus styles. Lower end
+        // of the band, framed as "you straddle styles," never as a weak result.
+        const blend = Array.isArray(topMatches) && topMatches.length > 1;
+        const m = margin ?? 0;
+        const label = blend
+          ? 'A blend of styles'
+          : m >= 0.20 ? 'Strong match'
+          : m >= 0.08 ? 'Clear match'
+          :             'Your match';
+        return (
+          <p className="quiz-result-confidence">
+            {`${label} · ${pct}% you`}
+          </p>
+        );
+      })()}
+
+      {Array.isArray(topMatches) && topMatches.length > 1 && (
+        <p className="quiz-result-blend">
+          You sit between{' '}
+          {topMatches.map((tm, i) => (
+            <React.Fragment key={tm.archetype.id}>
+              {i > 0 && (i === topMatches.length - 1 ? ' and ' : ', ')}
+              <strong>{tm.archetype.name}</strong>
+            </React.Fragment>
+          ))}
+          {'. '}A more complex read than most.
         </p>
       )}
 
@@ -536,6 +645,16 @@ function ResultView({ archetype, runnerUp, scores, confidence, runnerUpConfidenc
           {selected.size > 0
             ? `Add ${selected.size} song${selected.size > 1 ? 's' : ''} to my next playlist →`
             : 'Add all songs to my next playlist →'}
+        </button>
+        <button
+          className="quiz-btn-primary"
+          onClick={handleBothClick}
+          disabled={suggestions.length === 0}
+          title={selected.size > 0
+            ? `Apply your style AND add the ${selected.size} song${selected.size > 1 ? 's' : ''} you picked into the next playlist`
+            : 'Apply your style AND add ALL recommended songs into the next playlist'}
+        >
+          Both
         </button>
         <button className="quiz-btn-ghost" onClick={onRetake}>
           Retake

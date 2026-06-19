@@ -30,6 +30,12 @@ class PlaylistRequest(BaseModel):
     # URIs are added to the generated playlist verbatim, regardless of the
     # mood/genre/language choices made in the generator menu.
     pinnedUris:           Optional[list[str]] = None
+    # Genres / music types the user said they dislike — from the style-quiz
+    # "a genre you can't stand" step, or carried in the quiz style seed. These
+    # are STRICTLY excluded from generation (query suppression + track filter).
+    # Free-text dislikes typed into moodText are parsed server-side in addition
+    # to this list (see exclusions.py).
+    dislikedGenres:       Optional[list[str]] = None
 
 
 class SuggestionsRequest(BaseModel):

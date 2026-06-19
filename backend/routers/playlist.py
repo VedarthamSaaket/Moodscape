@@ -18,6 +18,7 @@ from spotify import (
     search_artist, get_artist_top_tracks,
 )
 from models import PlaylistRequest, AddTracksRequest, SimilarTracksRequest, SuggestionsRequest
+from exclusions import build_exclusions
 
 router = APIRouter()
 
@@ -64,6 +65,22 @@ def create_playlist(data: PlaylistRequest, request: Request):
     selected_langs = [sanitise_language(l) for l in (data.selectedLanguages or ["English"])]
     selected_genres = [sanitise_genre(g) for g in (data.selectedGenres or [])]
 
+    # ─── Dislikes → strict exclusions ────────────────────────────────────────
+    # Structured dislikes (the quiz "genre you can't stand" step, carried in the
+    # style seed) PLUS any dislikes the user typed into the mood box ("I hate
+    # kpop", "no country"). build_exclusions parses the free-text ones out and
+    # returns a cleaned mood string with those clauses removed, so "hate" never
+    # poisons the emotion read or the positive-intent search. The resolved
+    # exclusion set suppresses disliked-genre queries AND filters fetched tracks.
+    disliked_raw = [
+        sanitise_user_text(g, "dislikedGenre", max_len=80)
+        for g in (data.dislikedGenres or [])
+        if isinstance(g, str) and g.strip()
+    ]
+    exclusions, mood_text = build_exclusions(disliked_raw, mood_text)
+    if exclusions:
+        logger.info(f"[DISLIKE] suppressing genres={sorted(exclusions.genre_keys)}")
+
     selected_movies = data.selectedMovies or ([data.movieName] if data.movieName else [])
     split_movies    = []
     for m in selected_movies:
@@ -108,7 +125,7 @@ def create_playlist(data: PlaylistRequest, request: Request):
                 fill = get_recommendations(
                     access_token, mood_text, mood_profile, fill_count,
                     selected_langs, selected_genres, data.filmIndustry,
-                    None, dedup2,
+                    None, dedup2, exclusions=exclusions,
                 )
                 for t in fill:
                     uri = t.pop("uri", "")
@@ -119,7 +136,7 @@ def create_playlist(data: PlaylistRequest, request: Request):
             tracks = get_recommendations(
                 access_token, mood_text, mood_profile, track_count,
                 selected_langs, selected_genres, data.filmIndustry,
-                None, DeduplicationState(),
+                None, DeduplicationState(), exclusions=exclusions,
             )
             for t in tracks:
                 uri = t.pop("uri", "")
