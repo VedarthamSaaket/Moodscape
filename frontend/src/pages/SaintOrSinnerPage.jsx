@@ -216,7 +216,7 @@ function UniquenessPostit({ vibeScore, runs, roundsTotal, bestAccuracy, phase })
         {isSummary ? 'lifetime scoreboard' : 'your read · vs the crowd'}
       </div>
       <div className="sns-postit-num">
-        {hasRuns ? uniqueness : '—'}
+        {hasRuns ? uniqueness : '-'}
         <span className="sns-postit-pct">{hasRuns ? '%' : ''}</span>
       </div>
       <div className="sns-postit-sub">
@@ -331,7 +331,7 @@ function JudgeStep({ figure, value, onChange, onLock }) {
 
       {figure.example && (
         <p className="sns-example" style={{ '--i': figure.traits.length }}>
-          <span className="sns-example-label">For example —</span> {figure.example}
+          <span className="sns-example-label">example:</span> {figure.example}
         </p>
       )}
 
@@ -431,6 +431,9 @@ function Summary({ results, onReplay, vibeScore, rank, runs }) {
     (s, r) => s + Math.abs(r.user - r.reputation),
     0,
   );
+  // Mean error — average points off the public per stranger judged. The
+  // headline single number for "how far off was I, typically?"
+  const meanGap = results.length ? Math.round(totalGap / results.length) : 0;
   return (
     <div className="quiz-result">
       <div className="quiz-result-eyebrow">The verdict on your judgement</div>
@@ -443,8 +446,8 @@ function Summary({ results, onReplay, vibeScore, rank, runs }) {
           <span className="sns-score-label">Read the room</span>
         </div>
         <div className="sns-score">
-          <span className="sns-score-num">±{totalGap}</span>
-          <span className="sns-score-label">Off the public, summed</span>
+          <span className="sns-score-num">±{meanGap}</span>
+          <span className="sns-score-label">Avg error per call</span>
         </div>
         <div className="sns-score">
           <span className="sns-score-num">{total}</span>

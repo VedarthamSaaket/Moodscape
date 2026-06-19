@@ -73,6 +73,13 @@ const useQuizStore = create(
       confidence: null,
       runnerUpConfidence: null,
       margin: null,
+      // Human-facing certainty (85-97), distinct from the raw softmax above.
+      // Answers "how sure are we this aesthetic is you," not the classifier's
+      // internal 9-way probability. See scoreQuiz.js for the mapping.
+      displayConfidence: null,
+      // 1-3 archetypes {archetype, confidence} — more than one when the quiz
+      // genuinely hovered between styles, driving the "you're a blend" reveal.
+      topMatches: null,
       completedAt: null,
       hydratedFromServer: false,
       pendingStyleSeed: null,
@@ -85,6 +92,13 @@ const useQuizStore = create(
       // Free-text "name an artist or song you love" captured at the end of the
       // quiz. Used to personalise the post-quiz song suggestions.
       personalSeed: '',
+      // Genres / music types the user said they CAN'T stand at the end of the
+      // quiz (one phrase per atom — "kpop", "mainstream pop", "russian music").
+      // Carried into the next playlist via the use-style / both buttons and
+      // applied as STRICT exclusions in the backend (query suppression + track
+      // text-filter). Separate from pinnedTracks because dislikes outlive one
+      // playlist — they're a taste boundary, not a one-shot seed.
+      dislikedGenres: [],
       // Songs the user pinned from the result-screen suggestions, to be folded
       // into the NEXT playlist they generate (regardless of generator menu).
       pinnedTracks: [],
@@ -103,7 +117,7 @@ const useQuizStore = create(
         }),
 
       // Finalize quiz, store scoring output, timestamp, and push to backend.
-      finalize: ({ scores, archetype, runnerUp, confidence, runnerUpConfidence, margin }) => {
+      finalize: ({ scores, archetype, runnerUp, confidence, runnerUpConfidence, margin, displayConfidence, topMatches }) => {
         const completedAt = new Date().toISOString();
         set({
           scores,
@@ -112,6 +126,8 @@ const useQuizStore = create(
           confidence: confidence ?? null,
           runnerUpConfidence: runnerUpConfidence ?? null,
           margin: margin ?? null,
+          displayConfidence: displayConfidence ?? null,
+          topMatches: topMatches ?? null,
           completedAt,
         });
         pushResult({
@@ -133,8 +149,11 @@ const useQuizStore = create(
           confidence: null,
           runnerUpConfidence: null,
           margin: null,
+          displayConfidence: null,
+          topMatches: null,
           completedAt: null,
           personalSeed: '',
+          dislikedGenres: [],
         });
         pushDelete();
       },
@@ -143,6 +162,21 @@ const useQuizStore = create(
       setPersonalSeed: (seed) => set({ personalSeed: (seed || '').slice(0, 120) }),
       setPinnedTracks: (tracks) => set({ pinnedTracks: Array.isArray(tracks) ? tracks : [] }),
       clearPinnedTracks: () => set({ pinnedTracks: [] }),
+
+      // Dislikes captured at the end of the quiz. Accepts either a comma/and/or-
+      // separated string or an array of phrases; normalises to a trimmed,
+      // de-duped, lowercased list (max 10 atoms, max 40 chars each).
+      setDislikedGenres: (input) => {
+        const atoms = Array.isArray(input)
+          ? input
+          : String(input || '').split(/\s*(?:,|\/|\band\b|\bor\b|\bnor\b|;)\s*/i);
+        const cleaned = atoms
+          .map((s) => String(s || '').trim().toLowerCase())
+          .filter((s) => s.length > 0 && s.length <= 40);
+        const deduped = Array.from(new Set(cleaned)).slice(0, 10);
+        set({ dislikedGenres: deduped });
+      },
+      clearDislikedGenres: () => set({ dislikedGenres: [] }),
 
       // Pull the user's saved result on app load. Server is the source of
       // truth, local cache only acts as offline fallback. No-op if logged out.

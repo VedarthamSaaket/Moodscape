@@ -14,6 +14,7 @@ from mood_engine import (
     DeduplicationState, _GLOBAL_EXECUTOR,
 )
 from query_banks import INDIAN_LANG_QUERY_BANKS
+from exclusions import Exclusions, make_track_filter
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -253,23 +254,27 @@ def get_recommendations_for_bucket(
     track_count:        int,
     dedup:              DeduplicationState,
     movie_name:         Optional[str] = None,
+    exclusions:         Optional[Exclusions] = None,
 ) -> list:
     market     = lang_cfg.get("market", "US")
     all_tracks = []
+    keep       = make_track_filter(exclusions)          # predicate: True = keep
+    excl_keys  = exclusions.genre_keys if exclusions else set()
 
     if movie_name and indian_lang:
         raw = search_movie_album(token, movie_name, indian_lang)
         for t in raw:
             uri    = t.get("uri", "")
             artist = t.get("artist", "")
-            if uri and dedup.is_allowed(uri, artist):
+            if uri and dedup.is_allowed(uri, artist) and keep(t):
                 dedup.register(uri, artist)
                 all_tracks.append(t)
         if len(all_tracks) >= track_count:
             return all_tracks[:track_count]
 
     queries = build_search_queries(
-        mood_profile, lang_cfg, indian_lang, selected_genres, selected_languages
+        mood_profile, lang_cfg, indian_lang, selected_genres, selected_languages,
+        excluded_genre_keys=excl_keys,
     )
     logger.info(f"[QUERIES] {queries[:6]}")
 
@@ -280,7 +285,9 @@ def get_recommendations_for_bucket(
             for t in raw:
                 uri    = t.get("uri", "")
                 artist = t["artists"][0]["name"] if t.get("artists") else ""
-                if uri and dedup.is_allowed(uri, artist):
+                # Filter against dislikes on the RAW item (has album + artists),
+                # so a disliked keyword in any of title/artist/album drops it.
+                if uri and dedup.is_allowed(uri, artist) and keep(t):
                     result.append(normalise_track(t))
             return result
         except Exception as exc:
@@ -293,7 +300,7 @@ def get_recommendations_for_bucket(
             for t in future.result():
                 uri    = t.get("uri", "")
                 artist = t.get("artist", "")
-                if uri and dedup.is_allowed(uri, artist):
+                if uri and dedup.is_allowed(uri, artist) and keep(t):
                     dedup.register(uri, artist)
                     all_tracks.append(t)
             if len(all_tracks) >= track_count * 2:
@@ -315,6 +322,7 @@ def get_recommendations(
     film_industry:      Optional[str],
     movie_name:         Optional[str],
     dedup:              DeduplicationState,
+    exclusions:         Optional[Exclusions] = None,
 ) -> list:
     lang_list = selected_languages or ["English"]
 
@@ -328,6 +336,7 @@ def get_recommendations(
         return get_recommendations_for_bucket(
             token, mood_profile, lang_cfg, indian_lang,
             selected_genres, lang_list, track_count, dedup, movie_name,
+            exclusions=exclusions,
         )
 
     n         = len(lang_list)
@@ -346,6 +355,7 @@ def get_recommendations(
             token, mood_profile, lang_cfg, indian_lang,
             selected_genres, [lang_name], bucket, dedup,
             movie_name if i == 0 else None,
+            exclusions=exclusions,
         )
         all_tracks.extend(tracks)
 
