@@ -136,10 +136,11 @@
 }
 
 /* ── Floating music notes ───────────────────────────────────────────
-   Tiny mint glyphs drift up + sway slightly + fade out. Each note has a
-   different delay/duration so they don't pulse in lockstep. Kept petite
-   on purpose — the radio is small, the wash of notes should be cuter
-   than the radio itself. */
+   Tiny mint glyphs drift OUTWARD from every side of the radio (top, right,
+   bottom, left) with a small sway + fade. Each note has its own size set
+   inline via the SVG fontSize attribute; durations stagger per-side so the
+   wash never pulses in lockstep. Petite on purpose — the radio is small,
+   the wash should feel cuter than it. */
 .pr-notes {
   font-family: 'Segoe UI Symbol', 'Apple Symbols', system-ui, sans-serif;
   pointer-events: none;
@@ -148,19 +149,37 @@
   opacity: 0;
   transform-box: fill-box;
   transform-origin: center;
-  animation: pr-note-float 4.2s ease-in-out infinite;
 }
-.pr-note-0 { animation-duration: 4.0s; }
-.pr-note-1 { animation-duration: 4.6s; }
-.pr-note-2 { animation-duration: 3.8s; }
-.pr-note-3 { animation-duration: 5.0s; }
-.pr-note-4 { animation-duration: 4.4s; }
 
-@keyframes pr-note-float {
-  0%   { opacity: 0;   transform: translate(0, 6px)  scale(0.7); }
-  20%  { opacity: 1;   transform: translate(-1px, 2px) scale(1.0); }
-  60%  { opacity: 0.85; transform: translate(1px, -6px) scale(0.95); }
-  100% { opacity: 0;   transform: translate(-1px, -12px) scale(0.7); }
+/* Per-side animation: name maps to direction. */
+.pr-note--up    { animation: pr-note-up    4.2s ease-in-out infinite; }
+.pr-note--down  { animation: pr-note-down  4.8s ease-in-out infinite; }
+.pr-note--left  { animation: pr-note-left  4.5s ease-in-out infinite; }
+.pr-note--right { animation: pr-note-right 4.6s ease-in-out infinite; }
+
+@keyframes pr-note-up {
+  0%   { opacity: 0;    transform: translate(0px, 4px) scale(0.7); }
+  20%  { opacity: 1;    transform: translate(-1px, 0)  scale(1.0); }
+  60%  { opacity: 0.85; transform: translate(1px, -8px) scale(0.95); }
+  100% { opacity: 0;    transform: translate(-1px, -14px) scale(0.7); }
+}
+@keyframes pr-note-down {
+  0%   { opacity: 0;    transform: translate(0px, -3px) scale(0.7); }
+  20%  { opacity: 1;    transform: translate(1px, 0)    scale(1.0); }
+  60%  { opacity: 0.85; transform: translate(-1px, 7px) scale(0.95); }
+  100% { opacity: 0;    transform: translate(1px, 12px) scale(0.7); }
+}
+@keyframes pr-note-left {
+  0%   { opacity: 0;    transform: translate(3px, 0)    scale(0.7); }
+  20%  { opacity: 1;    transform: translate(0, -1px)   scale(1.0); }
+  60%  { opacity: 0.85; transform: translate(-7px, 1px) scale(0.95); }
+  100% { opacity: 0;    transform: translate(-12px, -1px) scale(0.7); }
+}
+@keyframes pr-note-right {
+  0%   { opacity: 0;    transform: translate(-3px, 0)  scale(0.7); }
+  20%  { opacity: 1;    transform: translate(0, 1px)   scale(1.0); }
+  60%  { opacity: 0.85; transform: translate(7px, -1px) scale(0.95); }
+  100% { opacity: 0;    transform: translate(12px, 1px) scale(0.7); }
 }
 
 /* ── Reduced-motion guard ──────────────────────────────────────────── */
