@@ -26,22 +26,30 @@
 }
 
 /* ── Radio column ─────────────────────────────────────────────────────── */
+/* The column is sticky over a tall viewport and the inner stack is
+   vertically centred inside it, so the radio sits in the middle of the
+   left section rather than floating at the top. */
 .saved-radio-col {
+  position: sticky;
+  top: 0;
+  min-height: calc(100vh - 80px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.saved-radio-stack {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 14px;
-  position: sticky;
-  /* Sit roughly level with the song-list rows instead of pinned to the very
-     top of the page — feels less floaty against the header. */
-  top: 140px;
-  padding-top: 24px;
 }
 
 @media (max-width: 880px) {
   .saved-radio-col {
     position: static;
-    padding-top: 6px;
+    min-height: 0;
+    padding: 12px 0 4px;
   }
 }
 
@@ -73,23 +81,9 @@
   line-height: 1.4;
 }
 
-/* Visually-hidden audio host. Keeps the iframe in the DOM at real dimensions
-   so the browser doesn't suspend its audio context, but positions it off-
-   screen so the user never actually sees the YouTube video. */
-.saved-radio-audio {
-  position: fixed;
-  left: -10000px;
-  top: 0;
-  width: 320px;
-  height: 180px;
-  opacity: 0;
-  pointer-events: none;
-  overflow: hidden;
-}
-.saved-radio-audio iframe {
-  display: block;
-  border: 0;
-}
+/* Audio host has moved out of the page — it now lives in <GlobalRadio/> at
+   the app root so navigating between routes doesn't unmount it. The page's
+   only job is to render the visible boombox + caption. */
 
 /* Main column wraps the existing header + list. */
 .saved-main {

@@ -1,11 +1,9 @@
-import React, { useState } from 'react';
+import React from 'react';
 import useSavedStore from '../store/savedStore';
 import usePlayerStore from '../store/playerStore';
+import useRadioStore from '../store/radioStore';
 import PixelRadio from './saved/PixelRadio.jsx';
 import './SavedPage.css';
-
-const RADIO_EMBED_URL =
-  'https://www.youtube.com/embed/tRsQsTMvPNg?autoplay=1&rel=0';
 
 export default function SavedPage() {
   const saved       = useSavedStore((s) => s.saved);
@@ -13,41 +11,27 @@ export default function SavedPage() {
   const clearSaved  = useSavedStore((s) => s.clearSaved);
   const playList    = usePlayerStore((s) => s.playList);
 
-  const [radioOn, setRadioOn] = useState(false);
+  // Global radio state — survives page navigation because the actual audio
+  // iframe is hosted by <GlobalRadio/> at the app root, not here.
+  const radioOn   = useRadioStore((s) => s.on);
+  const toggleRadio = useRadioStore((s) => s.toggle);
 
   return (
     <div className="saved-page">
       <aside className="saved-radio-col">
-        <PixelRadio on={radioOn} onToggle={() => setRadioOn((v) => !v)} />
+        <div className="saved-radio-stack">
+          <PixelRadio on={radioOn} onToggle={toggleRadio} />
 
-        <div className="saved-radio-caption">
-          <span className="saved-radio-eyebrow">FM · live</span>
-          <span className="saved-radio-title">
-            {radioOn ? 'now broadcasting' : 'tap to tune in'}
-          </span>
-          <span className="saved-radio-sub">
-            {radioOn ? '24/7 lofi hip hop radio' : 'a little background while you browse'}
-          </span>
-        </div>
-
-        {/* Audio source — visually hidden iframe, mounted only when on so the
-            stream actually starts. We keep the iframe at real dimensions and
-            push it off-screen instead of `display:none`, because some browsers
-            suspend hidden iframes' audio. The user sees the animated radio +
-            soundwaves; they hear the lofi stream. */}
-        {radioOn && (
-          <div className="saved-radio-audio" aria-hidden="true">
-            <iframe
-              src={RADIO_EMBED_URL}
-              title="Lofi radio audio"
-              width="320"
-              height="180"
-              frameBorder="0"
-              allow="autoplay; encrypted-media"
-              tabIndex={-1}
-            />
+          <div className="saved-radio-caption">
+            <span className="saved-radio-eyebrow">FM · live</span>
+            <span className="saved-radio-title">
+              {radioOn ? 'now broadcasting' : 'tap to tune in'}
+            </span>
+            <span className="saved-radio-sub">
+              {radioOn ? '24/7 lofi hip hop radio' : 'a little background while you browse'}
+            </span>
           </div>
-        )}
+        </div>
       </aside>
 
       <section className="saved-main">

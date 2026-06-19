@@ -16,6 +16,7 @@ import QuizPage from './pages/QuizPage';
 import SaintOrSinnerPage from './pages/SaintOrSinnerPage';
 import CallbackPage from './pages/CallbackPage';
 import GlobalPlayer from './components/GlobalPlayer';
+import GlobalRadio from './components/GlobalRadio';
 import { AuthProvider } from './AuthContext';
 
 function App() {
@@ -51,6 +52,9 @@ function App() {
         </Routes>
         {/* Persistent across every route, keeps playing until the tab closes. */}
         <GlobalPlayer />
+        {/* Lofi-radio audio host. Off-screen iframe, mounted outside the
+            <Routes> boundary so navigating between pages doesn't unmount it. */}
+        <GlobalRadio />
       </BrowserRouter>
     </AuthProvider>
   );
