@@ -10,40 +10,44 @@
 import React from 'react';
 import './PixelRadio.css';
 
-// Palette — 90s plastic / brushed-aluminium / LCD vibe.
+// Palette — cool navy/teal/parchment, color-matched to the app's existing
+// CSS variables (--parch #dce8f0, the saved-btn navy rgba(74,127,160,*), the
+// generator's deep-blue dither bg). Lets the radio sit inside the page
+// instead of fighting it.
 const C = {
-  outline: '#0c0a14',
-  bodyHi:  '#5e567a',
-  bodyMid: '#3d3654',
-  bodyLo:  '#2a2438',
-  bodyShade: '#1a1426',
-  speakerRing:  '#1a1428',
-  speakerInner: '#0a0810',
-  speakerCone:  '#4d4561',
-  speakerHi:    '#8a82a8',
-  speakerDot:   '#221a30',
-  knob:      '#b89d6b',
-  knobHi:    '#e8cf94',
-  knobShade: '#6e5a36',
-  ledRedOn:  '#ff5252',
-  ledRedOff: '#4a1f1f',
-  ledAmber:  '#ffcc4a',
-  ledGreen:  '#7ee07e',
-  ledOff:    '#243024',
-  lcdBg:     '#102818',
-  lcdOn:     '#7ef07a',
-  lcdDim:    '#264e30',
-  display:   '#0e1a1a',
-  antenna:   '#9a8c6f',
-  antennaTip:'#e8d99c',
-  handle:    '#3a3450',
-  handleHi:  '#7a72a0',
-  buttonTop: '#8a82a8',
-  buttonMid: '#605873',
-  buttonLo:  '#2c2640',
-  tapeWindow:'#1a2230',
-  tapeReel:  '#aaa0c2',
-  tapeReelHole:'#1a1428',
+  outline:   '#050a12',
+  bodyHi:    '#27425e',
+  bodyMid:   '#152538',
+  bodyLo:    '#0e1a26',
+  bodyShade: '#070d18',
+  speakerRing:  '#080f1a',
+  speakerInner: '#03070d',
+  speakerCone:  '#1f3852',
+  speakerHi:    '#5c8eb8',
+  speakerDot:   '#0b1726',
+  knob:      '#a8b8c8',
+  knobHi:    '#dce8f0',
+  knobShade: '#4a5e74',
+  ledRedOn:  '#e57878',
+  ledRedOff: '#3a1a1a',
+  ledAmber:  '#e6c87a',
+  ledGreen:  '#7ee8b8',
+  ledOff:    '#1a2630',
+  lcdBg:     '#0a1e1a',
+  lcdOn:     '#7ef0c4',
+  lcdDim:    '#1e4038',
+  display:   '#0a1418',
+  antenna:   '#7a8aa0',
+  antennaTip:'#dce8f0',
+  handle:    '#1a2c40',
+  handleHi:  '#4a7090',
+  buttonTop: '#8aa6bc',
+  buttonMid: '#4a6a82',
+  buttonLo:  '#1a2c3e',
+  tapeWindow:'#0a1828',
+  tapeReel:  '#a0b4c8',
+  tapeReelHole:'#0a1828',
+  wave:      '#7ee8b8',
 };
 
 // Helper: emit a 1x1 (or w×h) rect.
@@ -150,11 +154,25 @@ export default function PixelRadio({ on, onToggle }) {
       title={on ? 'Turn radio off' : 'Turn radio on'}
     >
       <svg
-        viewBox="0 0 56 44"
+        viewBox="-10 0 76 44"
         xmlns="http://www.w3.org/2000/svg"
         shapeRendering="crispEdges"
         className="pixel-radio__svg"
       >
+        {/* ── Soundwaves emanating from each speaker ─────────────────── */}
+        {on && (
+          <g className="pr-waves" stroke={C.wave} fill="none" strokeLinecap="round">
+            {/* Left speaker — three arcs sweeping leftward. */}
+            <path className="pr-wave pr-wave-0" d="M 1 24 Q -3 24 -5 24" />
+            <path className="pr-wave pr-wave-1" d="M 1 21 Q -4 22 -7 23" />
+            <path className="pr-wave pr-wave-2" d="M 1 27 Q -4 26 -7 25" />
+            {/* Right speaker — three arcs sweeping rightward. */}
+            <path className="pr-wave pr-wave-3" d="M 54 24 Q 58 24 60 24" />
+            <path className="pr-wave pr-wave-4" d="M 54 21 Q 59 22 62 23" />
+            <path className="pr-wave pr-wave-5" d="M 54 27 Q 59 26 62 25" />
+          </g>
+        )}
+
         {/* ── Antenna ─────────────────────────────────────────────────── */}
         <Px x={9} y={0} w={1} h={1} fill={C.antennaTip} className={on ? 'pr-antenna-tip' : ''} />
         <Px x={9} y={1} w={1} h={6} fill={C.antenna} />
