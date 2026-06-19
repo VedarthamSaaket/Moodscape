@@ -1,3 +1,5 @@
+import { EXTENDED_FIGURES } from './figures/index.js';
+
 // Saint or Sinner, data deck for the blind reputation-judgment game.
 //
 // Each figure is a REAL public person (historical or present-day, global +
@@ -867,4 +869,10 @@ export const FIGURES = [
     verdict: 'Adored and disputed',
     reveal: 'Johnny Depp, the franchise star whose internationally televised defamation trial with Amber Heard became the most-watched courtroom event of the streaming era.',
   },
+
+  // ── Modular extensions ────────────────────────────────────────────────
+  // Topical figure files live under ./figures/ — see ./figures/index.js
+  // for the manifest.  Adding a new batch is a single ./figures/<file>.js
+  // import in that index; no edit to this file is required.
+  ...EXTENDED_FIGURES,
 ];
