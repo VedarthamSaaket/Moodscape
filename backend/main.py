@@ -70,6 +70,7 @@ _dev_origins = [
 _extra = [o.strip() for o in os.getenv("CORS_ORIGINS", "").split(",") if o.strip()]
 origins = _dev_origins + _extra
 
+app.add_middleware(SecurityMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
@@ -77,7 +78,6 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "X-Session-Token"],
 )
-app.add_middleware(SecurityMiddleware)
 
 app.include_router(auth.router)
 app.include_router(playlist.router)
