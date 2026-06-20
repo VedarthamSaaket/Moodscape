@@ -1,8 +1,10 @@
 import os
+import traceback
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from spotipy.oauth2 import SpotifyOAuth
 
 from security import SecurityMiddleware, validate_secrets
@@ -89,6 +91,32 @@ app.include_router(saved.router)
 app.include_router(player.router)
 app.include_router(saint.router)
 app.include_router(images.router)
+
+
+# Any uncaught exception below CORSMiddleware would otherwise hit Starlette's
+# default ServerErrorMiddleware, which lives ABOVE user middleware and returns
+# a plain-text 500 with no CORS headers — making every backend crash look like
+# a CORS bug in the browser. This handler ensures the response is JSON with the
+# matching ACAO header attached, and logs the full traceback so the real cause
+# is recoverable from Render logs instead of being hidden behind a CORS error.
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    from config import logger
+    logger.error(
+        f"[UNHANDLED] {request.method} {request.url.path}: {exc}\n"
+        f"{traceback.format_exc()}"
+    )
+    origin = request.headers.get("origin", "")
+    headers = {}
+    if origin and origin in origins:
+        headers["Access-Control-Allow-Origin"]      = origin
+        headers["Access-Control-Allow-Credentials"] = "true"
+        headers["Vary"]                             = "Origin"
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error", "error": str(exc)},
+        headers=headers,
+    )
 
 
 if __name__ == "__main__":
