@@ -30,14 +30,27 @@ const useSavedStore = create((set, get) => ({
   // the tab always sees the latest server state, even within one session.
   hydrate: async (force = false) => {
     const headers = authHeaders();
-    if (!headers) return;
-    if (!force && get().hydrated) return;
+    if (!headers) {
+      console.warn('[SAVED] hydrate: not logged in');
+      return;
+    }
+    if (!force && get().hydrated) {
+      console.log('[SAVED] hydrate: already hydrated this session');
+      return;
+    }
     try {
       const res = await fetch(`${API_BASE}/api/saved`, { headers });
-      if (!res.ok) return;
+      if (!res.ok) {
+        console.error(`[SAVED] hydrate failed: ${res.status}`);
+        return;
+      }
       const data = await res.json();
-      set({ saved: Array.isArray(data.saved) ? data.saved : [], hydrated: true });
-    } catch { /* network down — leave existing in-memory list as-is */ }
+      const songs = Array.isArray(data.saved) ? data.saved : [];
+      console.log(`[SAVED] hydrate: fetched ${songs.length} songs`, songs);
+      set({ saved: songs, hydrated: true });
+    } catch (e) {
+      console.error('[SAVED] hydrate network error:', e.message);
+    }
   },
   resetHydration: () => set({ saved: [], hydrated: false }),
 
@@ -58,39 +71,47 @@ const useSavedStore = create((set, get) => ({
       albumArt:   t.albumArt || null,
       spotifyUrl: t.spotifyUrl || null,
     };
-    set((s) => ({ saved: [clean, ...s.saved.filter((x) => savedKey(x) !== k)] })); // optimistic
     const headers = authHeaders();
-    if (!headers) return; // logged out — keep local copy this session
+    if (!headers) {
+      console.warn('[SAVED] Not logged in, would add local copy (lasts this session only)');
+      set((s) => ({ saved: [clean, ...s.saved.filter((x) => savedKey(x) !== k)] }));
+      return;
+    }
     try {
       const res = await fetch(`${API_BASE}/api/saved/add`, {
         method: 'POST', headers, body: JSON.stringify(clean),
       });
-      // If the backend didn't accept it, revert the optimistic add so the
-      // user sees the failure instead of silently losing the song between
-      // sessions (this was the actual source of the disappearing-saves bug
-      // — fire-and-forget add + empty hydrate next time = data loss).
       if (!res.ok) {
-        set((s) => ({ saved: s.saved.filter((x) => savedKey(x) !== k) }));
+        console.error(`[SAVED] add failed: ${res.status} ${res.statusText}`, await res.text());
+        return;
       }
-    } catch {
-      set((s) => ({ saved: s.saved.filter((x) => savedKey(x) !== k) }));
+      console.log('[SAVED] add OK, updating local state', k);
+      set((s) => ({ saved: [clean, ...s.saved.filter((x) => savedKey(x) !== k)] }));
+    } catch (e) {
+      console.error('[SAVED] add network error:', e.message);
     }
   },
 
   removeSaved: async (t) => {
     const k = savedKey(t);
-    const prev = get().saved;
-    set((s) => ({ saved: s.saved.filter((x) => savedKey(x) !== k) })); // optimistic
     const headers = authHeaders();
-    if (!headers) return;
+    if (!headers) {
+      console.warn('[SAVED] Not logged in, cannot remove');
+      return;
+    }
     try {
       const res = await fetch(`${API_BASE}/api/saved/remove`, {
         method: 'POST', headers,
         body: JSON.stringify({ title: t.title, artist: t.artist, spotifyUrl: t.spotifyUrl }),
       });
-      if (!res.ok) set({ saved: prev }); // server rejected — put it back
-    } catch {
-      set({ saved: prev });
+      if (!res.ok) {
+        console.error(`[SAVED] remove failed: ${res.status}`);
+        return;
+      }
+      console.log('[SAVED] remove OK, updating local state', k);
+      set((s) => ({ saved: s.saved.filter((x) => savedKey(x) !== k) }));
+    } catch (e) {
+      console.error('[SAVED] remove network error:', e.message);
     }
   },
 

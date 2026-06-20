@@ -130,17 +130,22 @@ def list_saved(request: Request):
 def add_saved(song: SavedSong, request: Request):
     email = require_session_token(request, lax=False)
     _ensure_schema()
+    logger.info(f"[SAVED] add_saved called for {email}")
 
     song = _clean(song)
     if not song.title:
+        logger.error("[SAVED] title missing")
         raise HTTPException(status_code=400, detail="title is required")
     key = _key(song)
+    logger.info(f"[SAVED] add key={key}")
 
     conn = get_db_connection()
     if not conn:
+        logger.error("[SAVED] get_db_connection returned None")
         raise HTTPException(status_code=500, detail="Database connection failed")
     try:
         with conn.cursor() as cur:
+            logger.debug(f"[SAVED] executing INSERT for {email}, {key}")
             cur.execute(
                 """
                 INSERT INTO saved_songs (user_email, song_key, title, artist, album_art, spotify_url)
@@ -152,6 +157,7 @@ def add_saved(song: SavedSong, request: Request):
                 (email, key, song.title, song.artist, song.albumArt, song.spotifyUrl),
             )
             conn.commit()
+            logger.info(f"[SAVED] added/updated {key} for {email}")
     except Exception as exc:
         conn.rollback()
         logger.error(f"[SAVED] add error: {exc}")

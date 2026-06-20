@@ -10,6 +10,7 @@
   align-items: center;
   padding: 0;
   border: 0;
+  outline: 0;
   background: transparent;
   cursor: pointer;
   font-family: var(--font-mono, ui-monospace, monospace);
@@ -23,6 +24,11 @@
   filter:
     drop-shadow(0 10px 18px rgba(0, 0, 0, 0.6))
     drop-shadow(0 0 14px rgba(136, 216, 232, 0.26));
+}
+
+.pixel-radio:focus-visible {
+  outline: 2px solid rgba(136, 216, 232, 0.6);
+  outline-offset: 2px;
 }
 
 .pixel-radio:active {

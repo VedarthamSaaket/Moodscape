@@ -605,7 +605,9 @@ function ResultView({ archetype, runnerUp, scores, confidence, margin, displayCo
                     </span>
                     <button
                       className={`quiz-song-save ${isSaved ? 'is-on' : ''}`}
-                      onClick={() => toggleSave(t)}
+                      onClick={() => {
+                        toggleSave(t).catch(e => console.error('[QUIZ] toggleSave error:', e));
+                      }}
                       title={isSaved ? 'Saved — tap to remove' : 'Save for later'}
                       aria-label={isSaved ? 'Remove from saved' : 'Save song'}
                     >
