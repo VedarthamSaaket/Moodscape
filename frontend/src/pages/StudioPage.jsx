@@ -5,9 +5,11 @@ import { ALL_PALETTES, FP_PALETTES } from "./themes";
 import STICKER_PACKS from "../sticker-manifest.json";
 import "./StudioPage.css";
 
-const UNSPLASH_KEY = import.meta.env.VITE_UNSPLASH_KEY || "";
-const PEXELS_KEY = import.meta.env.VITE_PEXELS_KEY || "";
-const NASA_KEY = import.meta.env.VITE_NASA_API_KEY || "";
+// Image-provider keys are not embedded in this bundle — Unsplash & Pexels
+// requests go through the backend proxy at /api/images/search, which uses
+// server-side credentials. NASA, Met Museum, and Wikipedia are open APIs
+// and require no key on either side.
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
 
 const ABSTRACT_SOURCES = [
   { thumb: "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a4/Vassily_Kandinsky%2C_1913_-_Composition_7.jpg/400px-Vassily_Kandinsky%2C_1913_-_Composition_7.jpg", full: "https://upload.wikimedia.org/wikipedia/commons/a/a4/Vassily_Kandinsky%2C_1913_-_Composition_7.jpg", alt: "Kandinsky – Composition VII", attribution: "Kandinsky, Wikimedia Commons" },
@@ -436,17 +438,17 @@ export default function StudioPage() {
     const results = append ? [...currentResults] : [];
 
     try {
-      if (UNSPLASH_KEY) {
-        const res = await fetch(`https://api.unsplash.com/search/photos?query=${encodeURIComponent(query)}&per_page=30&page=${page}&orientation=landscape`, { headers: { Authorization: `Client-ID ${UNSPLASH_KEY}`, "Accept-Version": "v1" } });
+      const res = await fetch(`${API_BASE}/api/images/search?query=${encodeURIComponent(query)}&source=unsplash&per_page=30&page=${page}&orientation=landscape`);
+      if (res.ok) {
         const data = await res.json();
-        results.push(...(data.results || []).map((p) => ({ thumb: p.urls.small, full: p.urls.regular, alt: p.alt_description || imgQuery, attribution: `${p.user.name}, Unsplash` })));
+        results.push(...(data.results || []));
       }
     } catch {}
     try {
-      if (PEXELS_KEY) {
-        const res = await fetch(`https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=30&page=${page}`, { headers: { Authorization: PEXELS_KEY } });
+      const res = await fetch(`${API_BASE}/api/images/search?query=${encodeURIComponent(query)}&source=pexels&per_page=30&page=${page}`);
+      if (res.ok) {
         const data = await res.json();
-        results.push(...(data.photos || []).map((p) => ({ thumb: p.src.medium, full: p.src.large, alt: p.alt || imgQuery, attribution: `${p.photographer}, Pexels` })));
+        results.push(...(data.results || []));
       }
     } catch {}
 

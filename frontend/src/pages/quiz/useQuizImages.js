@@ -17,8 +17,7 @@ import { QUESTIONS } from './quizData.js';
 
 const CACHE_KEY = 'moodscape-quiz-images-v1';
 const TTL_MS    = 14 * 24 * 60 * 60 * 1000;
-const UNSPLASH_KEY = import.meta.env.VITE_UNSPLASH_KEY || '';
-const PEXELS_KEY   = import.meta.env.VITE_PEXELS_KEY   || '';
+const API_BASE  = import.meta.env.VITE_API_BASE_URL || '';
 
 function readCache() {
   try {
@@ -58,35 +57,26 @@ function collectTargets() {
   return targets;
 }
 
-// Try Unsplash first (best aesthetic match), fall back to Pexels, then null.
+// Provider keys live on the backend. We call /api/images/search with the
+// source we want (Unsplash for aesthetic match, Pexels as fallback) and
+// the backend forwards the request with its own credentials.
+async function fetchFromProxy(query, source) {
+  try {
+    const url = `${API_BASE}/api/images/search?query=${encodeURIComponent(query)}&source=${source}&per_page=1&orientation=landscape`;
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const data = await res.json();
+    const first = data?.results?.[0];
+    return first?.full || first?.thumb || null;
+  } catch {
+    return null;
+  }
+}
+
 async function fetchOne(query) {
-  if (UNSPLASH_KEY) {
-    try {
-      const res = await fetch(
-        `https://api.unsplash.com/search/photos?query=${encodeURIComponent(query)}&per_page=1&orientation=landscape&content_filter=high`,
-        { headers: { Authorization: `Client-ID ${UNSPLASH_KEY}`, 'Accept-Version': 'v1' } },
-      );
-      if (res.ok) {
-        const data = await res.json();
-        const p = data?.results?.[0];
-        if (p?.urls?.regular) return p.urls.regular;
-      }
-    } catch { /* fall through */ }
-  }
-  if (PEXELS_KEY) {
-    try {
-      const res = await fetch(
-        `https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=1&orientation=landscape`,
-        { headers: { Authorization: PEXELS_KEY } },
-      );
-      if (res.ok) {
-        const data = await res.json();
-        const p = data?.photos?.[0];
-        if (p?.src?.large) return p.src.large;
-      }
-    } catch { /* fall through */ }
-  }
-  return null;
+  return (await fetchFromProxy(query, 'unsplash'))
+      || (await fetchFromProxy(query, 'pexels'))
+      || null;
 }
 
 export default function useQuizImages() {

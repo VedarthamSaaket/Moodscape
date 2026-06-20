@@ -1,3 +1,4 @@
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -10,7 +11,7 @@ from config import (
     SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET,
     SPOTIFY_REDIRECT_URI, SPOTIFY_SCOPES,
 )
-from routers import auth, playlist, mood, studio, quiz, youtube, saved, player, saint
+from routers import auth, playlist, mood, studio, quiz, youtube, saved, player, saint, images
 
 
 sp_oauth = SpotifyOAuth(
@@ -56,11 +57,18 @@ async def lifespan(application: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
-origins = [
+# Local dev origins are always allowed. Production origins must be supplied
+# via the CORS_ORIGINS env var as a comma-separated list, e.g.
+#   CORS_ORIGINS=https://moodscape.app,https://www.moodscape.app
+# This keeps localhost out of the prod allowlist by default and lets us
+# add new domains without a code change.
+_dev_origins = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://192.168.29.130:5173",
 ]
+_extra = [o.strip() for o in os.getenv("CORS_ORIGINS", "").split(",") if o.strip()]
+origins = _dev_origins + _extra
 
 app.add_middleware(
     CORSMiddleware,
@@ -80,6 +88,7 @@ app.include_router(youtube.router)
 app.include_router(saved.router)
 app.include_router(player.router)
 app.include_router(saint.router)
+app.include_router(images.router)
 
 
 if __name__ == "__main__":
