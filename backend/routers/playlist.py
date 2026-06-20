@@ -79,7 +79,7 @@ def create_playlist(data: PlaylistRequest, request: Request):
     ]
     exclusions, mood_text = build_exclusions(disliked_raw, mood_text)
     if exclusions:
-        logger.info(f"[DISLIKE] suppressing genres={sorted(exclusions.genre_keys)}")
+        logger.info(f"[DISLIKE] suppressing genres={sorted(exclusions.keywords)}")
 
     selected_movies = data.selectedMovies or ([data.movieName] if data.movieName else [])
     split_movies    = []
