@@ -1,7 +1,18 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import usePlayerStore from '../store/playerStore';
+import useRadioStore from '../store/radioStore';
 import { API_BASE } from '../config';
 import './GlobalPlayer.css';
+
+// Radio and the music player are mutually exclusive — starting playback stops
+// the lofi radio stream. (The reverse — radio ON pauses the player — lives in
+// radioStore.) Called whenever the player actually begins playing.
+const stopRadioIfOn = () => {
+  try {
+    const rs = useRadioStore.getState();
+    if (rs.on) rs.setOn(false);
+  } catch { /* radio store not ready */ }
+};
 
 // ── Load the YouTube IFrame Player API exactly once ──────────────────────────
 let ytApiPromise = null;
@@ -74,6 +85,7 @@ export default function GlobalPlayer() {
   const hostRef        = useRef(null);   // stable wrapper React owns
   const playerRef      = useRef(null);   // YT.Player instance
   const loadedVideoRef = useRef(null);   // videoId currently loaded/cued
+  const lastErrKeyRef  = useRef(null);   // dedupe onError logs to one per track
   const skipTimerRef   = useRef(null);   // pending auto-skip timeout
   const failCountRef   = useRef(0);      // consecutive unplayable tracks (loop guard)
   const altsRef        = useRef(new Map());  // trackId -> [alternate embeddable videoIds]
@@ -157,7 +169,7 @@ export default function GlobalPlayer() {
             const S = window.YT && window.YT.PlayerState;
             if (!S) return;
             if (e.data === S.ENDED) next();
-            else if (e.data === S.PLAYING) { failCountRef.current = 0; setIsPlaying(true); }
+            else if (e.data === S.PLAYING) { failCountRef.current = 0; stopRadioIfOn(); setIsPlaying(true); }
             else if (e.data === S.PAUSED) setIsPlaying(false);
           },
           onError: (e) => {
@@ -167,10 +179,15 @@ export default function GlobalPlayer() {
             const code = e && e.data;
             const st = usePlayerStore.getState();
             const cur = st.queue[st.currentIndex];
-            console.warn(
-              `[GlobalPlayer] YouTube onError code=${code} videoId=${loadedVideoRef.current} ` +
-              `("${cur ? cur.title : '?'}" — ${cur ? cur.artist : ''}) — trying another upload`
-            );
+            // Log only the FIRST error per track — subsequent retries are expected
+            // noise (code=150 fallthrough). Quiets the console without losing signal.
+            const trackKey = cur ? `${cur.title}|${cur.artist}` : '?';
+            if (lastErrKeyRef.current !== trackKey) {
+              lastErrKeyRef.current = trackKey;
+              console.debug(
+                `[GlobalPlayer] YT error code=${code} ("${cur ? cur.title : '?'}" — ${cur ? cur.artist : ''}) — falling through uploads`
+              );
+            }
             setStatus('resolving');
             handlePlaybackError();
           },
@@ -246,7 +263,7 @@ export default function GlobalPlayer() {
     const player = playerRef.current;
     if (!player || !current) return;
     if (isPlaying) { try { player.pauseVideo(); } catch {} setIsPlaying(false); }
-    else { try { player.playVideo(); } catch {} setIsPlaying(true); }
+    else { stopRadioIfOn(); try { player.playVideo(); } catch {} setIsPlaying(true); }
   };
 
   // Hard stop: actually halt the iframe audio, then clear the queue. (clearQueue

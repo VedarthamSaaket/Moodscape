@@ -47,11 +47,16 @@ def _ensure_schema() -> None:
                 CREATE TABLE IF NOT EXISTS youtube_resolutions (
                     cache_key   TEXT        PRIMARY KEY,
                     video_id    TEXT        NOT NULL DEFAULT '',
+                    video_ids   TEXT        NOT NULL DEFAULT '',
                     title       TEXT,
                     artist      TEXT,
                     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 );
                 """
+            )
+            # Older deployments created the table without video_ids — add it.
+            cur.execute(
+                "ALTER TABLE youtube_resolutions ADD COLUMN IF NOT EXISTS video_ids TEXT NOT NULL DEFAULT ''"
             )
             conn.commit()
         _SCHEMA_INITIALISED = True
@@ -62,7 +67,9 @@ def _ensure_schema() -> None:
         release_db_connection(conn)
 
 
-_CACHE_VERSION = "v2"  # bump to invalidate ids cached before embeddability checks
+# v3: now caching the FULL ranked candidate list (video_ids), not just one id,
+# so a cache hit still gives the player fallbacks without a fresh 100-unit search.
+_CACHE_VERSION = "v3"
 
 
 def _cache_key(title: str, artist: str) -> str:
@@ -71,43 +78,56 @@ def _cache_key(title: str, artist: str) -> str:
 
 
 def _cache_get(key: str):
-    """Return (found: bool, video_id: str).
+    """Return (found: bool, candidates: list[str]).
 
-    A row whose video_id is empty (a previously cached miss) is treated as NOT
-    found, so a now-working API key gets a fresh chance to resolve it instead of
-    being stuck on a poisoned negative-cache entry forever.
+    Returns the full ranked candidate list. A row with no usable ids (a
+    previously cached miss) is treated as NOT found, so a now-working API key
+    gets a fresh chance instead of being stuck on a poisoned negative entry.
     """
     conn = get_db_connection()
     if not conn:
-        return False, ""
+        return False, []
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT video_id FROM youtube_resolutions WHERE cache_key = %s", (key,))
+            cur.execute(
+                "SELECT video_id, video_ids FROM youtube_resolutions WHERE cache_key = %s",
+                (key,),
+            )
             row = cur.fetchone()
-            if row is None or not (row[0] or ""):
-                return False, ""
-            return True, row[0]
+            if row is None:
+                return False, []
+            primary, joined = row[0] or "", row[1] or ""
+            ids = [v for v in joined.split(",") if v]
+            if not ids and primary:        # row predates video_ids column
+                ids = [primary]
+            if not ids:
+                return False, []
+            return True, ids
     except Exception as exc:
         logger.warning(f"[YOUTUBE] cache_get error: {exc}")
-        return False, ""
+        return False, []
     finally:
         release_db_connection(conn)
 
 
-def _cache_put(key: str, video_id: str, title: str, artist: str) -> None:
+def _cache_put(key: str, candidates: list, title: str, artist: str) -> None:
+    """Cache the full ranked candidate list. video_id keeps the primary pick for
+    back-compat; video_ids holds the whole list so a cache hit has fallbacks."""
     conn = get_db_connection()
     if not conn:
         return
+    primary = candidates[0] if candidates else ""
+    joined  = ",".join(candidates[:12])   # cap stored list; 12 is plenty of fallbacks
     try:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO youtube_resolutions (cache_key, video_id, title, artist)
-                VALUES (%s, %s, %s, %s)
+                INSERT INTO youtube_resolutions (cache_key, video_id, video_ids, title, artist)
+                VALUES (%s, %s, %s, %s, %s)
                 ON CONFLICT (cache_key) DO UPDATE
-                  SET video_id = EXCLUDED.video_id
+                  SET video_id = EXCLUDED.video_id, video_ids = EXCLUDED.video_ids
                 """,
-                (key, video_id or "", title[:300], artist[:300]),
+                (key, primary, joined, title[:300], artist[:300]),
             )
             conn.commit()
     except Exception as exc:
@@ -153,18 +173,9 @@ def _embeddable_ids(video_ids: list) -> list:
         return []
 
 
-def _search_candidates(title: str, artist: str) -> list:
-    """Resolve "<title> <artist>" to a ranked list of verified-embeddable
-    videoIds (possibly empty).
-
-    We deliberately DON'T pass videoEmbeddable=true here: that filter is
-    unreliable in BOTH directions (it returns embedding-blocked official videos
-    AND hides embeddable fan/lyric uploads). Instead we pull a wide pool of
-    candidates and let videos.list?part=status decide authoritatively — since
-    people re-upload nearly everything to YouTube, a wide pool almost always
-    contains at least one genuinely embeddable copy.
-    """
-    query = f"{title} {artist}".strip()
+def _raw_search_ids(query: str, max_results: int = 25) -> list:
+    """One YouTube search → list of videoIds in rank order (no embeddability
+    check). Costs 100 quota units."""
     try:
         res = requests.get(
             "https://www.googleapis.com/youtube/v3/search",
@@ -173,24 +184,53 @@ def _search_candidates(title: str, artist: str) -> list:
                 "q":          query,
                 "part":       "snippet",
                 "type":       "video",
-                "maxResults": 25,   # wide net; verification keeps the embeddable ones
+                "maxResults": max_results,
             },
             timeout=8,
         )
         if res.status_code != 200:
             logger.warning(f"[YOUTUBE] search {res.status_code}: {res.text[:160]}")
             return []
-        ids = [
+        return [
             it.get("id", {}).get("videoId")
             for it in res.json().get("items", [])
             if it.get("id", {}).get("videoId")
         ]
-        if not ids:
-            return []
-        return _embeddable_ids(ids)
     except Exception as exc:
         logger.warning(f"[YOUTUBE] search error: {exc}")
         return []
+
+
+def _search_candidates(title: str, artist: str) -> list:
+    """Resolve "<title> <artist>" to a ranked list of verified-embeddable
+    videoIds (possibly empty).
+
+    Efficiency: we do ONE wide search (25 results) and verify embeddability in a
+    single batched videos.list call (1 quota unit for the whole batch). We only
+    spend a SECOND search (100 units) when the first pool yields too few
+    embeddable copies — appending "audio" biases toward re-uploads/lyric videos
+    that are usually embeddable when the official upload blocks embedding. Most
+    tracks resolve on the first search, so the common path is 100 + 1 units.
+
+    We deliberately DON'T pass videoEmbeddable=true: that filter is unreliable in
+    both directions (returns embedding-blocked official videos AND hides
+    embeddable fan uploads). videos.list?part=status is authoritative.
+    """
+    primary = f"{title} {artist}".strip()
+    ids = _raw_search_ids(primary, 25)
+    embeddable = _embeddable_ids(ids) if ids else []
+
+    # Enough good copies already — no need to spend another search.
+    if len(embeddable) >= 3:
+        return embeddable
+
+    # Thin pool: try one more angle biased toward embeddable re-uploads, then
+    # merge (preserve rank, dedupe) and re-verify only the NEW ids.
+    secondary = f"{title} {artist} audio".strip()
+    more_ids = [i for i in _raw_search_ids(secondary, 15) if i not in set(ids)]
+    if more_ids:
+        embeddable = embeddable + [i for i in _embeddable_ids(more_ids) if i not in set(embeddable)]
+    return embeddable
 
 
 @router.get("/api/youtube/resolve")
@@ -212,11 +252,12 @@ def resolve_youtube(request: Request, title: str = "", artist: str = "", exclude
     exclude_set = {e.strip() for e in (exclude or "").split(",") if e.strip()}
     key = _cache_key(title, artist)
 
-    # Fast path: a cached good id, only when the player isn't asking us to avoid one.
+    # Fast path: return the full cached candidate list so the player has fallbacks
+    # without paying for a fresh search on every code=150.
     if not exclude_set:
-        found, cached_id = _cache_get(key)
-        if found:
-            return {"videoId": cached_id or None, "candidates": [cached_id] if cached_id else [], "cached": True}
+        found, cached_ids = _cache_get(key)
+        if found and cached_ids:
+            return {"videoId": cached_ids[0], "candidates": cached_ids, "cached": True}
 
     if not YOUTUBE_API_KEY:
         # Not configured — tell the client so it can fall back gracefully.
@@ -224,8 +265,8 @@ def resolve_youtube(request: Request, title: str = "", artist: str = "", exclude
 
     candidates = [c for c in _search_candidates(title, artist) if c not in exclude_set]
     video_id = candidates[0] if candidates else ""
-    if video_id:
-        _cache_put(key, video_id, title, artist)  # cache the (new) good primary
+    if candidates:
+        _cache_put(key, candidates, title, artist)  # cache the full ranked list
     else:
         # Don't poison the cache with a miss — a transient error (quota, a
         # referrer-restricted key returning 403, no results) shouldn't block

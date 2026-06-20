@@ -319,6 +319,56 @@ def similar_tracks(data: SimilarTracksRequest, request: Request):
     }
 
 
+# Era phrases that should bias the search to a release-year RANGE rather than
+# being matched as free text. "2003"/"early 2000s"/"y2k" as bare words make
+# Spotify match track/album TITLES containing those strings — which is how a
+# "2003 Toyota Corolla" ad ended up in a Y2K playlist. We translate the era to
+# Spotify's native `year:` filter AND strip the bare year words, while LEAVING
+# the genre/vibe words (hyperpop, eurodance, electroclash…) intact — so both
+# genuine-2000s tracks and modern Y2K-revival tracks in those genres land.
+_ERA_TO_YEAR_RANGE = [
+    (re.compile(r"\b(?:y2k|early\s*2000s|2000s|millennium|millenial|millennial)\b", re.I), "2000-2009"),
+    (re.compile(r"\b(?:late\s*90s|nineties|90s)\b", re.I), "1995-2001"),
+    (re.compile(r"\b(?:2010s|early\s*2010s)\b", re.I), "2010-2019"),
+    (re.compile(r"\b(?:eighties|80s)\b", re.I), "1980-1989"),
+]
+# Any standalone 4-digit year, e.g. "2003".
+_BARE_YEAR = re.compile(r"\b(19|20)\d{2}\b")
+
+
+def rewrite_era_query(q: str) -> str:
+    """Turn era/year text in a search seed into a Spotify `year:` range filter,
+    dropping the bare year words from the free-text part. Genre/vibe words are
+    preserved. Idempotent-ish; if no era is detected the query is returned
+    unchanged (minus any stray bare year, which is noise for free-text search).
+
+    Examples:
+      "y2k pop 2003 nostalgia"   -> "pop nostalgia year:2000-2009"
+      "early 2000s eurodance"    -> "eurodance year:2000-2009"
+      "hyperpop chrome glitch"   -> "hyperpop chrome glitch"  (unchanged)
+    """
+    if not q:
+        return q
+    year_range = None
+    text = q
+    for rx, rng in _ERA_TO_YEAR_RANGE:
+        if rx.search(text):
+            year_range = year_range or rng   # first match wins (most specific era first)
+            text = rx.sub(" ", text)
+    # Strip any remaining bare 4-digit years (e.g. "2003 synth" -> "synth").
+    # If we found an explicit year via a bare year but no era phrase, use it as a
+    # ±4yr window so the vibe still reads as "around then" without title-matching.
+    bare = _BARE_YEAR.search(text)
+    if bare and not year_range:
+        y = int(bare.group(0))
+        year_range = f"{max(1900, y - 4)}-{y + 4}"
+    text = _BARE_YEAR.sub(" ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    if year_range:
+        return (f"{text} year:{year_range}").strip()
+    return text
+
+
 @router.post("/api/quiz/suggestions")
 def quiz_suggestions(data: SuggestionsRequest, request: Request):
     """Return a blended set of individual song suggestions shaped by BOTH the
@@ -366,6 +416,12 @@ def quiz_suggestions(data: SuggestionsRequest, request: Request):
         if not isinstance(s, str):
             continue
         clean = sanitise_search_token(s.strip(), "archetypeSeed", max_len=120)
+        if not clean:
+            continue
+        # Translate era/year words to a Spotify `year:` filter and strip the bare
+        # years so the genre/vibe terms drive the free-text match (keeps Y2K
+        # revival tracks in, keeps "2003 Toyota" junk out).
+        clean = rewrite_era_query(clean)
         if clean:
             archetype_seeds.append(clean)
 

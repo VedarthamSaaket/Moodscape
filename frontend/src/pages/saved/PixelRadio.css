@@ -26,9 +26,16 @@
     drop-shadow(0 0 14px rgba(136, 216, 232, 0.26));
 }
 
+/* Keyboard-focus indication WITHOUT a rectangular outline. A boxed outline
+   (outline + outline-offset) drew a visible light rectangle around the radio's
+   bounding box that flickered during the bob animation's repaints. A
+   drop-shadow glow hugs the SVG silhouette instead, so there's an accessible
+   focus cue with no box. */
 .pixel-radio:focus-visible {
-  outline: 2px solid rgba(136, 216, 232, 0.6);
-  outline-offset: 2px;
+  outline: none;
+}
+.pixel-radio:focus-visible .pixel-radio__svg {
+  filter: drop-shadow(0 0 6px rgba(136, 216, 232, 0.85));
 }
 
 .pixel-radio:active {

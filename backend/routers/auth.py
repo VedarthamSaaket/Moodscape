@@ -16,6 +16,7 @@ from security import (
     validate_spotify_token,
 )
 from database import get_db_connection, release_db_connection
+from spotify import get_spotify_user_profile
 from email_service import send_email, verification_html, reset_code_html, reset_link_html
 from models import (
     UserCreate, UserLogin, VerifyEmail, ResendCode,
@@ -357,17 +358,64 @@ def spotify_login():
     return {"authorization_url": sp_oauth.get_authorize_url()}
 
 
+# A Spotify-only user has no app password. We still need a row in `users`
+# (password_hash is NOT NULL) so their saved songs / quiz / boards can be keyed
+# by email like any other account. We store an unusable bcrypt hash of a random
+# secret — it can never match a real sign-in attempt, so the account is
+# Spotify-login-only until/unless they set a password via the reset flow.
+def _upsert_spotify_user(email: str) -> None:
+    conn = get_db_connection()
+    if not conn:
+        raise HTTPException(status_code=500, detail="Database connection failed")
+    try:
+        unusable_hash = bcrypt.hashpw(secrets.token_bytes(32), bcrypt.gensalt(rounds=12)).decode()
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO users (email, password_hash, is_verified, created_at)
+                VALUES (%s, %s, TRUE, NOW())
+                ON CONFLICT (email) DO UPDATE
+                  SET is_verified = TRUE
+                """,
+                (email, unusable_hash),
+            )
+            conn.commit()
+    finally:
+        release_db_connection(conn)
+
+
 @router.get("/api/callback/spotify")
 def spotify_callback(code: str):
     try:
         token_info = sp_oauth.get_access_token(code)
-        return {
-            "access_token":  token_info.get("access_token"),
-            "refresh_token": token_info.get("refresh_token"),
-        }
     except Exception as exc:
         logger.error(f"[SPOTIFY] Token exchange error: {exc}")
         raise HTTPException(status_code=400, detail="Auth failed")
+
+    access_token  = token_info.get("access_token")
+    refresh_token = token_info.get("refresh_token")
+    resp = {"access_token": access_token, "refresh_token": refresh_token}
+
+    # Bridge: turn the Spotify identity into an app session so saved songs etc.
+    # persist across reloads and devices. If anything here fails we still return
+    # the Spotify tokens (playback keeps working); the user just won't have data
+    # persistence until a successful login.
+    try:
+        profile = get_spotify_user_profile(access_token)
+        email = (profile or {}).get("email")
+        if email:
+            email = email.strip().lower()
+            _upsert_spotify_user(email)
+            resp["session_token"] = generate_session_token(email)
+            logger.info(f"[SPOTIFY] bridged session for {email}")
+        else:
+            logger.warning("[SPOTIFY] profile had no email; no app session minted")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(f"[SPOTIFY] session bridge failed: {exc}")
+
+    return resp
 
 
 @router.post("/api/refresh/spotify")
