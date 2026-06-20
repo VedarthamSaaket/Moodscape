@@ -1,5 +1,6 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useContext } from 'react';
 import { useLocation, useNavigate, Link } from 'react-router-dom';
+import { AuthContext } from '../AuthContext';
 import { API_BASE } from '../config';
 
 const CODE_LENGTH = 6;
@@ -7,6 +8,7 @@ const CODE_LENGTH = 6;
 function VerifyEmailPage() {
     const location = useLocation();
     const navigate = useNavigate();
+    const { setIsLoggedIn } = useContext(AuthContext);
 
     const [email, setEmail] = useState(location.state?.email || '');
     const [digits, setDigits] = useState(Array(CODE_LENGTH).fill(''));
@@ -57,8 +59,12 @@ function VerifyEmailPage() {
             });
             const data = await res.text().then((t) => (t ? JSON.parse(t) : {}));
             if (!res.ok) throw new Error(data.detail || `Error ${res.status}`);
-            setMessage(data.message || 'Email verified! Redirecting to sign in…');
-            setTimeout(() => navigate('/signin'), 1500);
+            if (data.session_token) {
+                localStorage.setItem('authToken', data.session_token);
+                setIsLoggedIn(true);
+            }
+            setMessage(data.message || 'Email verified! Redirecting…');
+            setTimeout(() => navigate(data.session_token ? '/generator' : '/signin'), 1200);
         } catch (err) { setIsError(true); setMessage(err.message); }
         finally { setIsLoading(false); }
     };

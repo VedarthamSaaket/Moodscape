@@ -48,10 +48,8 @@ function SignUpPage() {
         throw new Error(data.detail || `Error ${response.status}`);
       }
 
-      setMessage(data.message || 'Account created! Redirecting to verify your email…');
-
-      
-      setTimeout(() => navigate('/verify-email', { state: { email } }), 1500);
+      setMessage(data.message || 'Check your email for the 6-digit code…');
+      setTimeout(() => navigate('/verify-email', { state: { email } }), 1200);
     } catch (error) {
       setIsError(true);
       setMessage(error.message);

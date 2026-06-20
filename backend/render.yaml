@@ -32,3 +32,7 @@ services:
         sync: false
       - key: CORS_ORIGINS
         sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_FROM
+        sync: false

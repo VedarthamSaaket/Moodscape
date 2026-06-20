@@ -21,6 +21,10 @@ SPOTIFY_SCOPES        = os.getenv("SPOTIFY_SCOPES")
 YOUTUBE_API_KEY       = os.getenv("YOUTUBE_API_KEY")
 GMAIL_USER            = os.getenv("GMAIL_USER")
 GMAIL_APP_PASSWORD    = os.getenv("GMAIL_APP_PASSWORD")
+# Resend HTTP API — preferred on hosts that block SMTP (e.g. Render free).
+# When RESEND_API_KEY is set, email_service uses Resend instead of Gmail SMTP.
+RESEND_API_KEY        = os.getenv("RESEND_API_KEY")
+RESEND_FROM           = os.getenv("RESEND_FROM", "MoodScape <onboarding@resend.dev>")
 
 logger = logging.getLogger("moodscape.main")
 if not logger.handlers:

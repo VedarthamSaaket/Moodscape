@@ -1,12 +1,38 @@
 import time
 import smtplib
+import requests
 from email.mime.multipart import MIMEMultipart
 from email.mime.text      import MIMEText
 
-from config import GMAIL_USER, GMAIL_APP_PASSWORD, logger
+from config import (
+    GMAIL_USER, GMAIL_APP_PASSWORD,
+    RESEND_API_KEY, RESEND_FROM,
+    logger,
+)
 
 
-def send_email(to: str, subject: str, html: str) -> bool:
+def _send_via_resend(to: str, subject: str, html: str) -> bool:
+    try:
+        r = requests.post(
+            "https://api.resend.com/emails",
+            headers={
+                "Authorization": f"Bearer {RESEND_API_KEY}",
+                "Content-Type":  "application/json",
+            },
+            json={"from": RESEND_FROM, "to": [to], "subject": subject, "html": html},
+            timeout=15,
+        )
+        if 200 <= r.status_code < 300:
+            logger.info(f"[EMAIL] ✓ sent to {to} via Resend")
+            return True
+        logger.error(f"[EMAIL] ✗ Resend {r.status_code}: {r.text[:200]}")
+        return False
+    except Exception as exc:
+        logger.error(f"[EMAIL] ✗ Resend transport error: {exc}")
+        return False
+
+
+def _send_via_smtp(to: str, subject: str, html: str) -> bool:
     pwd = (GMAIL_APP_PASSWORD or "").replace(" ", "")
     for attempt in range(2):
         try:
@@ -15,24 +41,33 @@ def send_email(to: str, subject: str, html: str) -> bool:
             msg["From"]    = f"MoodScape <{GMAIL_USER}>"
             msg["To"]      = to
             msg.attach(MIMEText(html, "html"))
-            with smtplib.SMTP("smtp.gmail.com", 587) as server:
+            with smtplib.SMTP("smtp.gmail.com", 587, timeout=15) as server:
                 server.ehlo()
                 server.starttls()
                 server.ehlo()
                 server.login(GMAIL_USER, pwd)
                 server.sendmail(GMAIL_USER, to, msg.as_string())
-            logger.info(f"[EMAIL] ✓ sent to {to}")
+            logger.info(f"[EMAIL] ✓ sent to {to} via SMTP")
             return True
         except smtplib.SMTPAuthenticationError:
-            logger.error("[EMAIL] ✗ Auth failed — check GMAIL_USER and GMAIL_APP_PASSWORD in .env")
+            logger.error("[EMAIL] ✗ SMTP auth failed — check GMAIL_USER and GMAIL_APP_PASSWORD")
             return False
         except Exception as exc:
             if attempt == 0:
-                logger.warning(f"[EMAIL] attempt 1 failed ({exc}), retrying in 2s…")
+                logger.warning(f"[EMAIL] SMTP attempt 1 failed ({exc}), retrying in 2s…")
                 time.sleep(2)
             else:
-                logger.error(f"[EMAIL] ✗ {exc}")
+                logger.error(f"[EMAIL] ✗ SMTP: {exc}")
     return False
+
+
+def send_email(to: str, subject: str, html: str) -> bool:
+    """Send transactional email. Prefers Resend (HTTPS, works on hosts that
+    block outbound SMTP like Render free tier). Falls back to Gmail SMTP when
+    RESEND_API_KEY isn't configured."""
+    if RESEND_API_KEY:
+        return _send_via_resend(to, subject, html)
+    return _send_via_smtp(to, subject, html)
 
 
 def verification_html(code: str) -> str:

@@ -74,9 +74,23 @@ def _ensure_schema() -> None:
                 "ALTER TABLE users ALTER COLUMN verify_expiry TYPE TIMESTAMPTZ "
                 "USING verify_expiry AT TIME ZONE 'UTC'"
             )
+            # Pending signups live here until the 6-digit code is verified.
+            # Only on successful verification do we copy the row into `users`.
+            # That way a failed/abandoned verification leaves no account behind.
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS pending_users (
+                    email          TEXT        PRIMARY KEY,
+                    password_hash  TEXT        NOT NULL,
+                    verify_code    TEXT        NOT NULL,
+                    verify_expiry  TIMESTAMPTZ NOT NULL,
+                    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                );
+                """
+            )
             conn.commit()
         _SCHEMA_READY = True
-        logger.info("[AUTH] users table ready")
+        logger.info("[AUTH] users + pending_users tables ready")
     except Exception as exc:
         logger.error(f"[AUTH] Schema init failed: {exc}")
     finally:
@@ -86,8 +100,13 @@ def _ensure_schema() -> None:
 _ensure_reset_schema = _ensure_schema
 
 
-@router.post("/api/signup", status_code=201)
+@router.post("/api/signup", status_code=200)
 def signup_user(user: UserCreate, request: Request):
+    """Stage a signup. We DO NOT create a real `users` row yet — only a
+    `pending_users` row carrying the password hash and a 6-digit code. The
+    account is only created on successful /api/verify-email, so a failed or
+    abandoned verification leaves no orphan account behind."""
+    _ensure_schema()
     if len(user.password) < 8:
         raise HTTPException(status_code=400, detail="Password must be at least 8 characters.")
 
@@ -101,21 +120,25 @@ def signup_user(user: UserCreate, request: Request):
 
     try:
         with conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM users WHERE email = %s", (user.email,))
+            if cur.fetchone():
+                raise HTTPException(status_code=400, detail="An account with this email already exists.")
+
             cur.execute(
                 """
-                INSERT INTO users (email, password_hash, verify_code, verify_expiry, is_verified)
-                VALUES (%s, %s, %s, %s, FALSE)
+                INSERT INTO pending_users (email, password_hash, verify_code, verify_expiry)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (email) DO UPDATE
+                  SET password_hash = EXCLUDED.password_hash,
+                      verify_code   = EXCLUDED.verify_code,
+                      verify_expiry = EXCLUDED.verify_expiry,
+                      created_at    = NOW()
                 """,
                 (user.email, hashed.decode(), code, expiry),
             )
             conn.commit()
+    finally:
         release_db_connection(conn)
-    except psycopg2.IntegrityError:
-        release_db_connection(conn)
-        raise HTTPException(status_code=400, detail="An account with this email already exists.")
-    except Exception as exc:
-        release_db_connection(conn)
-        raise
 
     ok = send_email(
         to      = user.email,
@@ -124,32 +147,39 @@ def signup_user(user: UserCreate, request: Request):
     )
     if not ok:
         raise HTTPException(
-            status_code=202,
-            detail="Account created, but we couldn't send the verification email. "
-                   "Use 'Resend code' on the next screen.",
+            status_code=502,
+            detail="Couldn't send the verification email. Please try again in a moment.",
         )
-    return {"message": "Account created! Check your email for the 6-digit code."}
+    return {"message": "Check your email for the 6-digit code."}
 
 
 @router.post("/api/verify-email")
 def verify_email(data: VerifyEmail):
+    """Verify the 6-digit code and only then create the real `users` row.
+    Returns a session token so the client can sign the user in immediately
+    without a second round-trip through /api/signin."""
+    _ensure_schema()
     conn = get_db_connection()
     if not conn:
         raise HTTPException(status_code=500, detail="Database connection failed")
     try:
         with conn.cursor() as cur:
+            # Already verified previously (idempotent re-submit) — just sign them in.
+            cur.execute("SELECT is_verified FROM users WHERE email = %s", (data.email,))
+            existing = cur.fetchone()
+            if existing and existing[0]:
+                token = generate_session_token(data.email)
+                return {"message": "Email already verified.", "session_token": token, "email": data.email}
+
             cur.execute(
-                "SELECT verify_code, verify_expiry, is_verified FROM users WHERE email = %s",
+                "SELECT password_hash, verify_code, verify_expiry FROM pending_users WHERE email = %s",
                 (data.email,),
             )
             row = cur.fetchone()
             if not row:
-                raise HTTPException(status_code=404, detail="Email not found.")
+                raise HTTPException(status_code=404, detail="No pending signup for this email. Please sign up again.")
 
-            db_code, db_expiry, is_verified = row
-
-            if is_verified:
-                return {"message": "Email already verified. Please sign in."}
+            password_hash, db_code, db_expiry = row
             if datetime.now(timezone.utc) > db_expiry:
                 raise HTTPException(status_code=400, detail="Code expired — click 'Resend code'.")
             if not hmac.compare_digest(data.code.strip(), db_code.strip()):
@@ -157,21 +187,27 @@ def verify_email(data: VerifyEmail):
 
             cur.execute(
                 """
-                UPDATE users
-                SET is_verified = TRUE, verify_code = NULL, verify_expiry = NULL
-                WHERE email = %s
+                INSERT INTO users (email, password_hash, is_verified, created_at)
+                VALUES (%s, %s, TRUE, NOW())
+                ON CONFLICT (email) DO UPDATE
+                  SET password_hash = EXCLUDED.password_hash,
+                      is_verified   = TRUE
                 """,
-                (data.email,),
+                (data.email, password_hash),
             )
+            cur.execute("DELETE FROM pending_users WHERE email = %s", (data.email,))
             conn.commit()
     finally:
         release_db_connection(conn)
 
-    return {"message": "Email verified! You can now sign in."}
+    token = generate_session_token(data.email)
+    return {"message": "Email verified!", "session_token": token, "email": data.email}
 
 
 @router.post("/api/resend-verify-code")
 def resend_verify_code(data: ResendCode):
+    """Generate and email a new 6-digit code for an in-flight pending signup."""
+    _ensure_schema()
     conn = get_db_connection()
     if not conn:
         raise HTTPException(status_code=500, detail="Database connection failed")
@@ -181,14 +217,17 @@ def resend_verify_code(data: ResendCode):
 
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT id, is_verified FROM users WHERE email = %s", (data.email,))
-            row = cur.fetchone()
-            if not row:
-                raise HTTPException(status_code=404, detail="Email not found.")
-            if row[1]:
+            cur.execute("SELECT is_verified FROM users WHERE email = %s", (data.email,))
+            existing = cur.fetchone()
+            if existing and existing[0]:
                 return {"message": "Already verified. Please sign in."}
+
+            cur.execute("SELECT 1 FROM pending_users WHERE email = %s", (data.email,))
+            if not cur.fetchone():
+                raise HTTPException(status_code=404, detail="No pending signup for this email. Please sign up again.")
+
             cur.execute(
-                "UPDATE users SET verify_code = %s, verify_expiry = %s WHERE email = %s",
+                "UPDATE pending_users SET verify_code = %s, verify_expiry = %s WHERE email = %s",
                 (code, expiry, data.email),
             )
             conn.commit()
@@ -201,7 +240,7 @@ def resend_verify_code(data: ResendCode):
         html    = verification_html(code),
     )
     if not ok:
-        raise HTTPException(status_code=500, detail="Couldn't send the email. Try again in a moment.")
+        raise HTTPException(status_code=502, detail="Couldn't send the email. Try again in a moment.")
     return {"message": "New code sent to your email."}
 
 

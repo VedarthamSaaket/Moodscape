@@ -41,6 +41,12 @@ function SignInPage() {
       const data = text ? JSON.parse(text) : {};
 
       if (!response.ok) {
+        // Legacy account exists but was never verified — bounce to verify page
+        // (carrying the email) instead of showing a dead-end error message.
+        if (response.status === 403) {
+          navigate('/verify-email', { state: { email } });
+          return;
+        }
         throw new Error(data.detail || `Error ${response.status}`);
       }
 
