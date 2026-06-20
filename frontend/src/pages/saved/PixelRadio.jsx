@@ -67,7 +67,10 @@ const C = {
   foot:      '#050a12',
   footHi:    '#27425e',
 
-  note:      '#88d8e8',
+  // Notes use a warm amber from the palette (cousin of the LED amber) — pulls
+  // the eye against the cool navy body without colliding with the cyan LCD
+  // family. Reads as honey / soft gold.
+  note:      '#f4d39a',
 };
 
 // 1×1 (or w×h) pixel rect helper.
@@ -184,20 +187,24 @@ function MusicNotes() {
   // them are huge — the radio is small. None drift from the BOTTOM of the
   // radio (the floor reads as where the feet sit, notes coming out of the
   // ground looked unnatural). Only top / left / right.
+  // Notes ORIGINATE at (or slightly inside) the radio body and DRIFT out.
+  // Each gets one of three path variants (a/b/c) so the wash never repeats
+  // the same trajectory back-to-back — looks improvised, not metronomic.
+  // Body bounds: x:3-47, y:14-37. Top edge ≈ y:14; left ≈ x:3; right ≈ x:47.
   const notes = [
     // ── Top edge ─────────────────────────────────────────────
-    { ch: '♪', x: 13, y: 7,  size: 3.2, side: 'up',    delay: '0s'   },
-    { ch: '♫', x: 22, y: 4,  size: 5.0, side: 'up',    delay: '0.6s' },
-    { ch: '♬', x: 30, y: 8,  size: 2.6, side: 'up',    delay: '1.2s' },
-    { ch: '♩', x: 38, y: 5,  size: 4.2, side: 'up',    delay: '1.8s' },
+    { ch: '♪', x: 13, y: 14, size: 3.2, side: 'up',    variant: 'a', delay: '0s'   },
+    { ch: '♫', x: 22, y: 15, size: 5.0, side: 'up',    variant: 'b', delay: '0.6s' },
+    { ch: '♬', x: 30, y: 14, size: 2.6, side: 'up',    variant: 'c', delay: '1.2s' },
+    { ch: '♩', x: 38, y: 15, size: 4.2, side: 'up',    variant: 'a', delay: '1.8s' },
     // ── Right edge ───────────────────────────────────────────
-    { ch: '♪', x: 48, y: 18, size: 2.8, side: 'right', delay: '0.3s' },
-    { ch: '♫', x: 49, y: 25, size: 5.6, side: 'right', delay: '1.0s' },
-    { ch: '♬', x: 48, y: 33, size: 3.4, side: 'right', delay: '1.7s' },
+    { ch: '♪', x: 46, y: 19, size: 2.8, side: 'right', variant: 'b', delay: '0.3s' },
+    { ch: '♫', x: 45, y: 26, size: 5.6, side: 'right', variant: 'c', delay: '1.0s' },
+    { ch: '♬', x: 46, y: 33, size: 3.4, side: 'right', variant: 'a', delay: '1.7s' },
     // ── Left edge ────────────────────────────────────────────
-    { ch: '♩', x: 1,  y: 19, size: 4.4, side: 'left',  delay: '0.5s' },
-    { ch: '♪', x: 2,  y: 27, size: 2.4, side: 'left',  delay: '1.2s' },
-    { ch: '♫', x: 1,  y: 34, size: 4.8, side: 'left',  delay: '2.0s' },
+    { ch: '♩', x: 4,  y: 20, size: 4.4, side: 'left',  variant: 'c', delay: '0.5s' },
+    { ch: '♪', x: 5,  y: 27, size: 2.4, side: 'left',  variant: 'a', delay: '1.2s' },
+    { ch: '♫', x: 4,  y: 34, size: 4.8, side: 'left',  variant: 'b', delay: '2.0s' },
   ];
 
   return (
@@ -210,7 +217,7 @@ function MusicNotes() {
           fill={C.note}
           fontSize={n.size}
           textAnchor="middle"
-          className={`pr-note pr-note--${n.side}`}
+          className={`pr-note pr-note--${n.side} pr-note--${n.side}-${n.variant}`}
           style={{ animationDelay: n.delay }}
         >
           {n.ch}

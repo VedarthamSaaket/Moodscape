@@ -58,6 +58,75 @@
   animation: gp-rise 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
+/* Progress strip — pinned along the top edge of the bar so it doesn't fight
+   the flex row layout below. Spotify-style: thin track, brighter fill, time
+   markers floating on either side. */
+.gp-progress {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px;
+  transform: translateY(-50%);
+  pointer-events: none; /* let bar clicks pass through; only the slider listens */
+}
+.gp-progress .gp-time {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.62rem;
+  letter-spacing: 0.04em;
+  color: rgba(190, 214, 232, 0.8);
+  min-width: 32px;
+  text-align: center;
+  background: rgba(10, 12, 18, 0.86);
+  padding: 1px 4px;
+  border-radius: 4px;
+}
+.gp-progress .gp-time--cur { text-align: right; }
+.gp-progress .gp-time--dur { text-align: left; }
+
+.gp-seek {
+  pointer-events: auto;
+  flex: 1 1 auto;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    rgba(170, 200, 230, 0.85) 0%,
+    rgba(170, 200, 230, 0.85) var(--gp-fill, 0%),
+    rgba(255, 255, 255, 0.16) var(--gp-fill, 0%),
+    rgba(255, 255, 255, 0.16) 100%
+  );
+  cursor: pointer;
+  transition: height 0.12s;
+}
+.gp-seek:hover { height: 6px; }
+.gp-seek::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #eaf2ff;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+}
+.gp-seek::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #eaf2ff;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+}
+.gp-seek:disabled { opacity: 0.4; cursor: default; }
+
 @keyframes gp-rise {
   from { transform: translateY(100%); opacity: 0; }
   to   { transform: translateY(0);    opacity: 1; }

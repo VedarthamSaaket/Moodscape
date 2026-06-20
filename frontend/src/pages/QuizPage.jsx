@@ -625,6 +625,30 @@ function ResultView({ archetype, runnerUp, scores, confidence, margin, displayCo
                 );
               })}
             </ul>
+            {(() => {
+              const unsavedCount = suggestions.filter(
+                (t) => !savedSet.has(t.spotifyUrl || `${t.title}·${t.artist}`)
+              ).length;
+              return (
+                <div className="quiz-suggest-bulk">
+                  <button
+                    className="quiz-btn-secondary"
+                    disabled={unsavedCount === 0}
+                    onClick={async () => {
+                      const toSave = suggestions.filter(
+                        (t) => !savedSet.has(t.spotifyUrl || `${t.title}·${t.artist}`)
+                      );
+                      await Promise.all(toSave.map((t) => toggleSave(t).catch(() => {})));
+                    }}
+                    title={unsavedCount === 0 ? 'All recommended songs are already saved' : `Save the ${unsavedCount} unsaved recommendation${unsavedCount > 1 ? 's' : ''}`}
+                  >
+                    {unsavedCount === 0
+                      ? '♥ all saved'
+                      : `♥ save all (${unsavedCount})`}
+                  </button>
+                </div>
+              );
+            })()}
             <p className="quiz-suggest-hint">
               ▶ plays in-app (queues the rest) · ♥ saves to your Saved tab · + add rides into your next playlist
             </p>

@@ -1119,7 +1119,9 @@ button:focus-visible {
   min-height: 100vh;
   width: 100vw;
   position: relative;
-  overflow-x: hidden;
+  /* No overflow-x here: body already has overflow-x:hidden globally. Setting
+     overflow on this element creates a scroll context that breaks
+     position:sticky for descendants (saved-page's radio column). */
   background: #050710;
 }
 

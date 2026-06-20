@@ -88,6 +88,7 @@ def normalise_track(t: dict) -> dict:
         "previewUrl": t.get("preview_url"),
         "uri":        t.get("uri", ""),
         "artistId":   artist_id,
+        "durationMs": t.get("duration_ms") or 0,
     }
 
 

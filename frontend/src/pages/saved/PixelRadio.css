@@ -164,35 +164,106 @@
   transform-origin: center;
 }
 
-/* Per-side animation: name maps to direction. */
-.pr-note--up    { animation: pr-note-up    4.2s ease-in-out infinite; }
-.pr-note--down  { animation: pr-note-down  4.8s ease-in-out infinite; }
-.pr-note--left  { animation: pr-note-left  4.5s ease-in-out infinite; }
-.pr-note--right { animation: pr-note-right 4.6s ease-in-out infinite; }
+/* Each side has THREE keyframe variants (a/b/c) — different sway, rotation,
+   distance, and slightly off-tempo durations. The wash never repeats the
+   same trajectory twice in a row; reads as improvised, not metronomic.
+   All variants start near 0,0 (notes are placed AT the radio boundary in
+   JSX) and drift outward. */
 
-@keyframes pr-note-up {
-  0%   { opacity: 0;    transform: translate(0px, 4px) scale(0.7); }
-  20%  { opacity: 1;    transform: translate(-1px, 0)  scale(1.0); }
-  60%  { opacity: 0.85; transform: translate(1px, -8px) scale(0.95); }
-  100% { opacity: 0;    transform: translate(-1px, -14px) scale(0.7); }
+/* ── UP ─────────────────────────────────────────────────────── */
+.pr-note--up-a { animation: pr-note-up-a 5.2s cubic-bezier(0.34, 0.0, 0.4, 1.0) infinite; }
+.pr-note--up-b { animation: pr-note-up-b 6.1s cubic-bezier(0.30, 0.0, 0.45, 1.0) infinite; }
+.pr-note--up-c { animation: pr-note-up-c 5.6s cubic-bezier(0.42, 0.0, 0.32, 1.0) infinite; }
+
+@keyframes pr-note-up-a {
+  0%   { opacity: 0;    transform: translate(0, 1px)     rotate(0deg)   scale(0.5); }
+  20%  { opacity: 0.95; transform: translate(-2px, -3px) rotate(-12deg) scale(1.0); }
+  55%  { opacity: 0.85; transform: translate(3px, -9px)  rotate(10deg)  scale(1.05); }
+  100% { opacity: 0;    transform: translate(-1px, -18px) rotate(-4deg) scale(0.7); }
 }
-@keyframes pr-note-down {
-  0%   { opacity: 0;    transform: translate(0px, -3px) scale(0.7); }
-  20%  { opacity: 1;    transform: translate(1px, 0)    scale(1.0); }
-  60%  { opacity: 0.85; transform: translate(-1px, 7px) scale(0.95); }
-  100% { opacity: 0;    transform: translate(1px, 12px) scale(0.7); }
+@keyframes pr-note-up-b {
+  0%   { opacity: 0;    transform: translate(0, 1px)    rotate(0deg)   scale(0.55); }
+  18%  { opacity: 0.9;  transform: translate(3px, -2px) rotate(14deg)  scale(1.0); }
+  50%  { opacity: 0.9;  transform: translate(-2px, -10px) rotate(-8deg) scale(1.0); }
+  100% { opacity: 0;    transform: translate(4px, -20px) rotate(6deg)  scale(0.65); }
 }
-@keyframes pr-note-left {
-  0%   { opacity: 0;    transform: translate(3px, 0)    scale(0.7); }
-  20%  { opacity: 1;    transform: translate(0, -1px)   scale(1.0); }
-  60%  { opacity: 0.85; transform: translate(-7px, 1px) scale(0.95); }
-  100% { opacity: 0;    transform: translate(-12px, -1px) scale(0.7); }
+@keyframes pr-note-up-c {
+  0%   { opacity: 0;    transform: translate(0, 0)      rotate(-4deg)  scale(0.5); }
+  22%  { opacity: 0.9;  transform: translate(1px, -4px) rotate(6deg)   scale(1.0); }
+  60%  { opacity: 0.75; transform: translate(-4px, -11px) rotate(-14deg) scale(1.08); }
+  100% { opacity: 0;    transform: translate(2px, -17px) rotate(2deg)  scale(0.7); }
 }
-@keyframes pr-note-right {
-  0%   { opacity: 0;    transform: translate(-3px, 0)  scale(0.7); }
-  20%  { opacity: 1;    transform: translate(0, 1px)   scale(1.0); }
-  60%  { opacity: 0.85; transform: translate(7px, -1px) scale(0.95); }
-  100% { opacity: 0;    transform: translate(12px, 1px) scale(0.7); }
+
+/* ── DOWN ───────────────────────────────────────────────────── */
+.pr-note--down-a { animation: pr-note-down-a 5.7s cubic-bezier(0.34, 0.0, 0.4, 1.0) infinite; }
+.pr-note--down-b { animation: pr-note-down-b 6.3s cubic-bezier(0.30, 0.0, 0.45, 1.0) infinite; }
+.pr-note--down-c { animation: pr-note-down-c 5.4s cubic-bezier(0.42, 0.0, 0.32, 1.0) infinite; }
+
+@keyframes pr-note-down-a {
+  0%   { opacity: 0;    transform: translate(0, -1px)   rotate(0deg)   scale(0.55); }
+  20%  { opacity: 0.95; transform: translate(2px, 3px)  rotate(12deg)  scale(1.0); }
+  55%  { opacity: 0.85; transform: translate(-3px, 9px) rotate(-10deg) scale(1.05); }
+  100% { opacity: 0;    transform: translate(1px, 16px) rotate(4deg)   scale(0.7); }
+}
+@keyframes pr-note-down-b {
+  0%   { opacity: 0;    transform: translate(0, -1px)   rotate(0deg)   scale(0.5); }
+  18%  { opacity: 0.9;  transform: translate(-3px, 2px) rotate(-14deg) scale(1.0); }
+  50%  { opacity: 0.9;  transform: translate(2px, 10px) rotate(8deg)   scale(1.0); }
+  100% { opacity: 0;    transform: translate(-4px, 18px) rotate(-6deg) scale(0.65); }
+}
+@keyframes pr-note-down-c {
+  0%   { opacity: 0;    transform: translate(0, 0)      rotate(4deg)   scale(0.5); }
+  22%  { opacity: 0.9;  transform: translate(-1px, 4px) rotate(-6deg)  scale(1.0); }
+  60%  { opacity: 0.75; transform: translate(4px, 11px) rotate(14deg)  scale(1.08); }
+  100% { opacity: 0;    transform: translate(-2px, 15px) rotate(-2deg) scale(0.7); }
+}
+
+/* ── LEFT ───────────────────────────────────────────────────── */
+.pr-note--left-a { animation: pr-note-left-a 5.5s cubic-bezier(0.34, 0.0, 0.4, 1.0) infinite; }
+.pr-note--left-b { animation: pr-note-left-b 6.2s cubic-bezier(0.30, 0.0, 0.45, 1.0) infinite; }
+.pr-note--left-c { animation: pr-note-left-c 5.0s cubic-bezier(0.42, 0.0, 0.32, 1.0) infinite; }
+
+@keyframes pr-note-left-a {
+  0%   { opacity: 0;    transform: translate(1px, 0)     rotate(0deg)   scale(0.55); }
+  20%  { opacity: 0.95; transform: translate(-3px, -3px) rotate(-10deg) scale(1.0); }
+  55%  { opacity: 0.85; transform: translate(-9px, 2px)  rotate(8deg)   scale(1.05); }
+  100% { opacity: 0;    transform: translate(-15px, -2px) rotate(-3deg) scale(0.7); }
+}
+@keyframes pr-note-left-b {
+  0%   { opacity: 0;    transform: translate(1px, 0)    rotate(0deg)   scale(0.5); }
+  18%  { opacity: 0.9;  transform: translate(-2px, 3px) rotate(12deg)  scale(1.0); }
+  50%  { opacity: 0.9;  transform: translate(-8px, -3px) rotate(-8deg) scale(1.0); }
+  100% { opacity: 0;    transform: translate(-14px, 3px) rotate(5deg)  scale(0.65); }
+}
+@keyframes pr-note-left-c {
+  0%   { opacity: 0;    transform: translate(0, 0)      rotate(-2deg)  scale(0.5); }
+  22%  { opacity: 0.9;  transform: translate(-4px, 1px) rotate(6deg)   scale(1.0); }
+  60%  { opacity: 0.75; transform: translate(-9px, -3px) rotate(-12deg) scale(1.08); }
+  100% { opacity: 0;    transform: translate(-13px, 2px) rotate(2deg)  scale(0.7); }
+}
+
+/* ── RIGHT ──────────────────────────────────────────────────── */
+.pr-note--right-a { animation: pr-note-right-a 5.6s cubic-bezier(0.34, 0.0, 0.4, 1.0) infinite; }
+.pr-note--right-b { animation: pr-note-right-b 5.0s cubic-bezier(0.30, 0.0, 0.45, 1.0) infinite; }
+.pr-note--right-c { animation: pr-note-right-c 6.3s cubic-bezier(0.42, 0.0, 0.32, 1.0) infinite; }
+
+@keyframes pr-note-right-a {
+  0%   { opacity: 0;    transform: translate(-1px, 0)   rotate(0deg)   scale(0.55); }
+  20%  { opacity: 0.95; transform: translate(3px, 3px)  rotate(10deg)  scale(1.0); }
+  55%  { opacity: 0.85; transform: translate(9px, -2px) rotate(-8deg)  scale(1.05); }
+  100% { opacity: 0;    transform: translate(15px, 2px) rotate(3deg)   scale(0.7); }
+}
+@keyframes pr-note-right-b {
+  0%   { opacity: 0;    transform: translate(-1px, 0)  rotate(0deg)   scale(0.5); }
+  18%  { opacity: 0.9;  transform: translate(2px, -3px) rotate(-12deg) scale(1.0); }
+  50%  { opacity: 0.9;  transform: translate(8px, 3px) rotate(8deg)   scale(1.0); }
+  100% { opacity: 0;    transform: translate(14px, -3px) rotate(-5deg) scale(0.65); }
+}
+@keyframes pr-note-right-c {
+  0%   { opacity: 0;    transform: translate(0, 0)     rotate(2deg)   scale(0.5); }
+  22%  { opacity: 0.9;  transform: translate(4px, -1px) rotate(-6deg) scale(1.0); }
+  60%  { opacity: 0.75; transform: translate(9px, 3px) rotate(12deg)  scale(1.08); }
+  100% { opacity: 0;    transform: translate(13px, -2px) rotate(-2deg) scale(0.7); }
 }
 
 /* ── Reduced-motion guard ──────────────────────────────────────────── */

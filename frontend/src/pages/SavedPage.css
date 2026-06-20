@@ -30,9 +30,13 @@
    vertically centred inside it, so the radio sits in the middle of the
    left section rather than floating at the top. */
 .saved-radio-col {
+  /* Sticky 1-viewport-tall column flex-centres the radio. As user scrolls,
+     the column pins to viewport top:0, so the centred stack always sits at
+     viewport vertical centre — radio stays put while songs scroll past. */
   position: sticky;
   top: 0;
-  min-height: calc(100vh - 80px);
+  align-self: start;
+  height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -48,7 +52,7 @@
 @media (max-width: 880px) {
   .saved-radio-col {
     position: static;
-    min-height: 0;
+    height: auto;
     padding: 12px 0 4px;
   }
 }

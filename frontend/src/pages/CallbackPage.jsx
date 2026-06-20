@@ -34,11 +34,12 @@ function CallbackPage() {
             if (data.refresh_token) {
               localStorage.setItem('spotify_refresh_token', data.refresh_token);
             }
-            // App session token bridged from the Spotify identity — this is what
-            // makes saved songs / quiz / boards persist across reloads + devices.
-            // Without it the user is "logged in" for the UI but unauthenticated
-            // for every data API (the disappearing-saves bug).
-            if (data.session_token) {
+            // App session token bridged from the Spotify identity. ONLY set it
+            // when no app token exists yet — otherwise a user who signed up
+            // with email A and links Spotify under email B would silently
+            // swap identities and lose access to their saved_songs/boards/quiz
+            // tied to A. Spotify auth is for playback; existing app identity wins.
+            if (data.session_token && !localStorage.getItem('authToken')) {
               localStorage.setItem('authToken', data.session_token);
             }
             setIsLoggedIn(true);

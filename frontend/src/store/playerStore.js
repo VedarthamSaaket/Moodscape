@@ -24,6 +24,7 @@ function toTrack(t) {
     albumArt:   t.albumArt || null,
     spotifyUrl: t.spotifyUrl || null,
     videoId:    t.videoId || null, // resolved lazily on first play
+    durationMs: t.durationMs || 0, // Spotify track length — backend uses it to prefer full-length YouTube uploads over remixes/snippets
   };
 }
 

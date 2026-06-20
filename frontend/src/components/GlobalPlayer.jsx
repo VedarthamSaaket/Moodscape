@@ -86,11 +86,13 @@ export default function GlobalPlayer() {
   const playerRef      = useRef(null);   // YT.Player instance
   const loadedVideoRef = useRef(null);   // videoId currently loaded/cued
   const lastErrKeyRef  = useRef(null);   // dedupe onError logs to one per track
+  const transitioningRef = useRef(false); // true between currentIndex change and first PLAYING — swallows YT's spurious PAUSED tick on video swap
   const skipTimerRef   = useRef(null);   // pending auto-skip timeout
   const failCountRef   = useRef(0);      // consecutive unplayable tracks (loop guard)
   const altsRef        = useRef(new Map());  // trackId -> [alternate embeddable videoIds]
   const triedRef       = useRef(new Map());  // trackId -> Set of videoIds already failed
   const [status, setStatus] = useState(''); // '', 'resolving', 'unavailable'
+  const [progress, setProgress] = useState({ cur: 0, dur: 0 }); // seconds — for the bar's seek slider
 
   const current =
     currentIndex >= 0 && currentIndex < queue.length ? queue[currentIndex] : null;
@@ -125,7 +127,7 @@ export default function GlobalPlayer() {
     if (!tried) { tried = new Set(); triedRef.current.set(tid, tried); }
     if (loadedVideoRef.current) tried.add(loadedVideoRef.current);
 
-    if (tried.size > 5) { skipUnplayable(); return; }   // bound the hunt
+    if (tried.size > 12) { skipUnplayable(); return; }  // bound the hunt — backend serves up to 20 candidates per track
 
     // 1) An alternate upload we already know about — costs no extra quota.
     const known = (altsRef.current.get(tid) || []).filter((id) => !tried.has(id));
@@ -135,8 +137,9 @@ export default function GlobalPlayer() {
     try {
       const appToken = localStorage.getItem('authToken') || '';
       const exclude = encodeURIComponent(Array.from(tried).join(','));
+      const dur = cur.durationMs ? `&duration_ms=${cur.durationMs}` : '';
       const res = await fetch(
-        `${API_BASE}/api/youtube/resolve?title=${encodeURIComponent(cur.title)}&artist=${encodeURIComponent(cur.artist)}&exclude=${exclude}`,
+        `${API_BASE}/api/youtube/resolve?title=${encodeURIComponent(cur.title)}&artist=${encodeURIComponent(cur.artist)}&exclude=${exclude}${dur}`,
         { headers: { 'X-Session-Token': appToken } }
       );
       if (res.ok) {
@@ -169,8 +172,18 @@ export default function GlobalPlayer() {
             const S = window.YT && window.YT.PlayerState;
             if (!S) return;
             if (e.data === S.ENDED) next();
-            else if (e.data === S.PLAYING) { failCountRef.current = 0; stopRadioIfOn(); setIsPlaying(true); }
-            else if (e.data === S.PAUSED) setIsPlaying(false);
+            else if (e.data === S.PLAYING) {
+              failCountRef.current = 0;
+              transitioningRef.current = false;
+              stopRadioIfOn();
+              setIsPlaying(true);
+            }
+            else if (e.data === S.PAUSED) {
+              // YT emits a spurious PAUSED tick when swapping videos via
+              // loadVideoById; ignore it so next/prev don't visibly pause.
+              if (transitioningRef.current) return;
+              setIsPlaying(false);
+            }
           },
           onError: (e) => {
             // YT error codes: 2 = bad/invalid videoId, 5 = HTML5 player error,
@@ -209,8 +222,9 @@ export default function GlobalPlayer() {
       setStatus('resolving');
       try {
         const appToken = localStorage.getItem('authToken') || '';
+        const dur = current.durationMs ? `&duration_ms=${current.durationMs}` : '';
         const res = await fetch(
-          `${API_BASE}/api/youtube/resolve?title=${encodeURIComponent(current.title)}&artist=${encodeURIComponent(current.artist)}`,
+          `${API_BASE}/api/youtube/resolve?title=${encodeURIComponent(current.title)}&artist=${encodeURIComponent(current.artist)}${dur}`,
           { headers: { 'X-Session-Token': appToken } }
         );
         if (res.ok) {
@@ -237,7 +251,12 @@ export default function GlobalPlayer() {
 
   useEffect(() => {
     clearTimeout(skipTimerRef.current); // drop any stale skip from a prior error
+    transitioningRef.current = true;    // swallow YT's transient PAUSED on video swap
     ensureAndLoad();
+    // Safety: clear the flag after 4s even if PLAYING never fires (resolve failed,
+    // network stall) so a real user pause later still registers.
+    const t = setTimeout(() => { transitioningRef.current = false; }, 4000);
+    return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentIndex, isReady, current?.videoId]);
 
@@ -250,6 +269,39 @@ export default function GlobalPlayer() {
       else player.pauseVideo();
     } catch { /* ignore */ }
   }, [isPlaying, isReady, current]);
+
+  // Poll the YT player for currentTime / duration while playing so the
+  // progress bar advances live. 500ms is smooth enough without burning CPU.
+  useEffect(() => {
+    if (!isReady || !current || !isPlaying) return;
+    const id = setInterval(() => {
+      const p = playerRef.current;
+      if (!p || !p.getCurrentTime) return;
+      try {
+        const cur = p.getCurrentTime() || 0;
+        const dur = p.getDuration() || 0;
+        setProgress((prev) => (prev.cur === cur && prev.dur === dur ? prev : { cur, dur }));
+      } catch { /* ignore */ }
+    }, 500);
+    return () => clearInterval(id);
+  }, [isReady, current, isPlaying]);
+
+  // Reset the bar to 0 the instant the track switches, so the new song doesn't
+  // briefly show the previous song's elapsed time.
+  useEffect(() => { setProgress({ cur: 0, dur: 0 }); }, [currentIndex]);
+
+  const seekTo = (sec) => {
+    const p = playerRef.current;
+    if (!p || !p.seekTo) return;
+    try { p.seekTo(sec, true); setProgress((prev) => ({ ...prev, cur: sec })); } catch { /* ignore */ }
+  };
+
+  const fmt = (sec) => {
+    sec = Math.max(0, Math.floor(sec || 0));
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return `${m}:${s < 10 ? '0' : ''}${s}`;
+  };
 
   // Reserve space at the bottom of scroll areas only while the full bar shows.
   useEffect(() => {
@@ -315,6 +367,23 @@ export default function GlobalPlayer() {
             <button className="gp-mini gp-close" onClick={() => setMinimized(true)}
               title="Minimize" aria-label="Minimize player">✕</button>
           </div>
+
+          <div className="gp-progress">
+            <span className="gp-time gp-time--cur">{fmt(progress.cur)}</span>
+            <input
+              className="gp-seek"
+              type="range"
+              min={0}
+              max={Math.max(progress.dur || 0, 1)}
+              step={1}
+              value={Math.min(progress.cur, progress.dur || progress.cur)}
+              onChange={(e) => seekTo(Number(e.target.value))}
+              style={{ '--gp-fill': `${progress.dur ? (progress.cur / progress.dur) * 100 : 0}%` }}
+              aria-label="Seek"
+              disabled={!progress.dur}
+            />
+            <span className="gp-time gp-time--dur">{fmt(progress.dur)}</span>
+          </div>
         </div>
       )}
 
@@ -324,7 +393,9 @@ export default function GlobalPlayer() {
           <span className="gp-pill-art"><TrackArt seed={(current.title || '') + '·' + (current.artist || '')} /></span>
           <span className="gp-pill-text">
             <span className="gp-pill-title">{current.title}</span>
-            <span className="gp-pill-tag">{isPlaying ? 'playing' : 'paused'} · tap to open</span>
+            <span className="gp-pill-tag" aria-label={isPlaying ? 'playing' : 'paused'}>
+              <span aria-hidden="true">{isPlaying ? '▶' : '⏸'} · ⤢</span>
+            </span>
           </span>
         </button>
       )}
