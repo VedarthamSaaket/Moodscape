@@ -6,10 +6,14 @@ import PixelRadio from './saved/PixelRadio.jsx';
 import './SavedPage.css';
 
 export default function SavedPage() {
-  const saved       = useSavedStore((s) => s.saved);
-  const removeSaved = useSavedStore((s) => s.removeSaved);
-  const clearSaved  = useSavedStore((s) => s.clearSaved);
-  const playList    = usePlayerStore((s) => s.playList);
+  const saved        = useSavedStore((s) => s.saved);
+  const removeSaved  = useSavedStore((s) => s.removeSaved);
+  const clearSaved   = useSavedStore((s) => s.clearSaved);
+  const hydrated     = useSavedStore((s) => s.hydrated);
+  const hydrating    = useSavedStore((s) => s.hydrating);
+  const hydrateError = useSavedStore((s) => s.hydrateError);
+  const hydrate      = useSavedStore((s) => s.hydrate);
+  const playList     = usePlayerStore((s) => s.playList);
 
   // Global radio state — survives page navigation because the actual audio
   // iframe is hosted by <GlobalRadio/> at the app root, not here.
@@ -53,7 +57,25 @@ export default function SavedPage() {
           )}
         </header>
 
-        {saved.length === 0 ? (
+        {saved.length === 0 && hydrateError ? (
+          // Pull failed — do NOT show the "no songs yet" empty state, which is
+          // indistinguishable from a genuinely empty library. Songs are safe
+          // on the server; we just couldn't reach it.
+          <div className="saved-empty">
+            <span className="saved-empty-glyph">⟳</span>
+            <p className="saved-empty-line">Couldn’t sync your saved songs.</p>
+            <p className="saved-empty-hint">They’re safe on the server — retrying automatically.</p>
+            <button className="saved-btn" style={{ marginTop: 12 }} onClick={() => hydrate(true)}>
+              Retry now
+            </button>
+          </div>
+        ) : saved.length === 0 && (hydrating || !hydrated) ? (
+          // First pull in flight (or not yet attempted) — show loading, not empty.
+          <div className="saved-empty">
+            <span className="saved-empty-glyph">♪</span>
+            <p className="saved-empty-line">Loading your saved songs…</p>
+          </div>
+        ) : saved.length === 0 ? (
           <div className="saved-empty">
             <span className="saved-empty-glyph">♡</span>
             <p className="saved-empty-line">No saved songs yet.</p>

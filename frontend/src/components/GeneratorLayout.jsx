@@ -18,6 +18,7 @@ function GeneratorLayout() {
   const resetQuizHydration = useQuizStore((s) => s.resetHydration);
   const hydrateSaved       = useSavedStore((s) => s.hydrate);
   const resetSavedHydration = useSavedStore((s) => s.resetHydration);
+  const savedHydrateError  = useSavedStore((s) => s.hydrateError);
   const hydratePlayer       = usePlayerStore((s) => s.hydrate);
   const resetPlayerHydration = usePlayerStore((s) => s.resetHydration);
   const hydrateSaint        = useSaintStore((s) => s.hydrate);
@@ -49,6 +50,16 @@ function GeneratorLayout() {
       document.removeEventListener('visibilitychange', refresh);
     };
   }, [hydrateSaved]);
+
+  // Self-heal: if the mount-time pull failed (server cold start, transient
+  // 5xx, brief network blip on reload), retry it shortly after instead of
+  // leaving the user pinned to an empty list. `hydrate(true)` no-ops if a
+  // pull is already in flight or already succeeded, so this is cheap.
+  useEffect(() => {
+    if (!savedHydrateError) return;
+    const id = setTimeout(() => hydrateSaved(true), 1500);
+    return () => clearTimeout(id);
+  }, [savedHydrateError, hydrateSaved]);
 
   const handleLogout = () => {
     // Clear hydrate flags so the next user's session starts a fresh sync.

@@ -22,37 +22,45 @@ const authHeaders = () => {
 
 const useSavedStore = create((set, get) => ({
   saved: [],            // [{ title, artist, albumArt, spotifyUrl }], newest first
-  hydrated: false,      // pulled from server this session
+  hydrated: false,      // a server pull SUCCEEDED this session (authoritative)
+  hydrating: false,     // a pull is in flight (race guard for the mount + focus effects)
+  hydrateError: false,  // last pull failed — UI shows "couldn't sync" instead of empty state
 
-  // Pull the user's saved songs from the server. Source of truth. No-op if
-  // logged out or already hydrated this session, unless `force` is true.
-  // `force` is set on visibility / focus refreshes so a user returning to
-  // the tab always sees the latest server state, even within one session.
+  // Pull the user's saved songs from the server. Server is the single source
+  // of truth, so a reload always re-pulls. No-op if logged out, or if a
+  // SUCCESSFUL pull already happened this session (unless `force`), or if a
+  // pull is already in flight.
+  //
+  // Critical: a failed pull must NEVER set `hydrated:true`. Caching a failure
+  // as success was the disappearing-saves bug — the line-37 guard then pinned
+  // the empty list for the rest of the session. On failure we leave `hydrated`
+  // false so the focus/visibility refresh (or the next navigation) retries.
   hydrate: async (force = false) => {
     const headers = authHeaders();
     if (!headers) {
       console.warn('[SAVED] hydrate: not logged in');
       return;
     }
-    if (!force && get().hydrated) {
-      console.log('[SAVED] hydrate: already hydrated this session');
-      return;
-    }
+    if (!force && get().hydrated) return;     // already have an authoritative copy
+    if (get().hydrating) return;              // another pull is in flight — don't race it
+    set({ hydrating: true });
     try {
       const res = await fetch(`${API_BASE}/api/saved`, { headers });
-      if (!res.ok) {
-        console.error(`[SAVED] hydrate failed: ${res.status}`);
-        return;
-      }
+      if (!res.ok) throw new Error(`hydrate failed: ${res.status}`);
       const data = await res.json();
       const songs = Array.isArray(data.saved) ? data.saved : [];
-      console.log(`[SAVED] hydrate: fetched ${songs.length} songs`, songs);
-      set({ saved: songs, hydrated: true });
+      console.log(`[SAVED] hydrate: fetched ${songs.length} songs`);
+      set({ saved: songs, hydrated: true, hydrateError: false });
     } catch (e) {
-      console.error('[SAVED] hydrate network error:', e.message);
+      // Do NOT touch `saved` and do NOT set `hydrated` — leave both alone so a
+      // later forced refresh retries cleanly instead of locking in an empty list.
+      console.error('[SAVED] hydrate error:', e.message);
+      set({ hydrateError: true });
+    } finally {
+      set({ hydrating: false });
     }
   },
-  resetHydration: () => set({ saved: [], hydrated: false }),
+  resetHydration: () => set({ saved: [], hydrated: false, hydrating: false, hydrateError: false }),
 
   isSaved: (t) => {
     const k = savedKey(t);
