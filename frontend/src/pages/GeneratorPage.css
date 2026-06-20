@@ -484,3 +484,21 @@
 }
 .gen-track-play:hover { background: rgba(40, 80, 115, 0.4); border-color: rgba(140, 190, 230, 0.6); }
 .gen-track-play:active { transform: scale(0.9); }
+
+/* ── Mobile ────────────────────────────────────────────────────────── */
+@media (max-width: 720px) {
+  .gen-pill { font-size: 0.68rem; padding: 4px 10px; }
+  .gen-pill-grid { gap: 5px; }
+  .gen-name-cover-row { flex-wrap: wrap; }
+  .gen-cover-col { width: 100%; }
+  .gen-results-header { gap: 8px; }
+  .gen-pinned-banner { font-size: 0.82rem; padding: 10px 12px; }
+  .gen-pinned-chip { max-width: 100%; }
+}
+@media (max-width: 480px) {
+  .gen-label { font-size: 0.72rem; }
+  .gen-subtitle { font-size: 0.94rem; }
+  .gen-track-title { font-size: 0.82rem; }
+  .gen-track-artist { font-size: 0.72rem; }
+  .gen-playlist-title { font-size: 1.05rem; }
+}

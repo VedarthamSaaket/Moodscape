@@ -2073,3 +2073,76 @@ button:focus-visible {
   opacity: 0.95;
   pointer-events: none;
 }
+
+/* ============================================================
+   RESPONSIVE — phone + small tablet
+   ============================================================ */
+
+/* Landing page — shrink M&M header so it doesn't overflow */
+@media (max-width: 720px) {
+  .main-header-mm { font-size: 6rem; }
+  .sub-header-mm { font-size: 0.92rem; letter-spacing: 0.14em; }
+  .top-brand { font-size: 0.76rem; letter-spacing: 0.36em; padding-top: 18px; }
+}
+@media (max-width: 480px) {
+  .main-header-mm { font-size: 4.6rem; }
+  .sub-header-mm { font-size: 0.82rem; letter-spacing: 0.10em; padding: 0 16px; }
+  .top-brand { font-size: 0.68rem; letter-spacing: 0.30em; }
+  .auth-buttons { gap: 8px; flex-wrap: wrap; justify-content: center; padding: 0 14px; }
+  .btn-launch { padding: 12px 28px; font-size: 0.98rem; }
+}
+
+/* Auth pages — fit phones < 380 wide and tighten padding */
+@media (max-width: 480px) {
+  .auth-page-wrapper { padding: 24px 12px; }
+  .auth-page {
+    min-width: 0;
+    padding: 32px 22px 28px;
+    border-radius: 18px;
+    max-width: 100%;
+  }
+  .auth-page h1 { font-size: 1.85rem; }
+  .auth-subtitle { font-size: 0.78rem; }
+  .auth-form { gap: 9px; margin-top: 20px; }
+}
+
+/* Generator header — stack brand · tabs · logout vertically on phone */
+@media (max-width: 720px) {
+  .generator-header {
+    padding: 10px 14px;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: center;
+    height: auto;
+  }
+  .gen-tab-bar {
+    position: static;
+    transform: none;
+    flex-basis: 100%;
+    justify-content: center;
+    order: 3;
+    gap: 14px;
+  }
+  .top-brand-corner { font-size: 0.86rem; letter-spacing: 0.22em; }
+  .btn-logout { padding: 5px 12px; font-size: 0.56rem; letter-spacing: 0.10em; }
+}
+@media (max-width: 480px) {
+  .gen-tab-bar { gap: 10px; }
+  .gen-tab { font-size: 0.48rem; letter-spacing: 0.12em; }
+}
+
+/* Generator content — make the card breathe on phones */
+@media (max-width: 720px) {
+  .generator-content { padding-top: 120px; padding-bottom: 96px; }
+  .gen-card {
+    padding: 28px 20px;
+    border-radius: 16px;
+    width: 94%;
+    margin-top: 16px;
+    margin-bottom: 16px;
+  }
+  .gen-row { grid-template-columns: 1fr; gap: 12px; }
+}
+@media (max-width: 480px) {
+  .gen-card { padding: 22px 16px; }
+}

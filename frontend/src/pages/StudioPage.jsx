@@ -610,6 +610,50 @@ export default function StudioPage() {
   const gridStyleClass = layout !== "freeform" ? `studio-canvas-grid-${layout}` : "";
   const isAbs = layout === "freeform";
 
+  const [orientation, setOrientation] = useState(() => {
+    if (typeof window === 'undefined') return { isPhone: false, isPortrait: false };
+    const w = window.innerWidth, h = window.innerHeight;
+    const minDim = Math.min(w, h);
+    return { isPhone: minDim < 600, isPortrait: h > w };
+  });
+  useEffect(() => {
+    const check = () => {
+      const w = window.innerWidth, h = window.innerHeight;
+      const minDim = Math.min(w, h);
+      setOrientation({ isPhone: minDim < 600, isPortrait: h > w });
+    };
+    window.addEventListener('resize', check);
+    window.addEventListener('orientationchange', check);
+    return () => {
+      window.removeEventListener('resize', check);
+      window.removeEventListener('orientationchange', check);
+    };
+  }, []);
+
+  if (orientation.isPhone && orientation.isPortrait) {
+    return (
+      <div className="studio-rotate-prompt">
+        <div className="studio-rotate-card">
+          <div className="studio-rotate-icon" aria-hidden="true">
+            <svg viewBox="0 0 64 64" width="64" height="64" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="14" y="6" width="26" height="44" rx="4" />
+              <path d="M27 44h0" />
+              <path d="M44 30l8 8-8 8" />
+              <path d="M52 38H30" />
+            </svg>
+          </div>
+          <h2 className="studio-rotate-title">Rotate your phone</h2>
+          <p className="studio-rotate-msg">
+            The Moodboard canvas works best in <strong>landscape</strong> mode.
+          </p>
+          <p className="studio-rotate-hint">
+            Turn your device sideways to start dragging cards. For the full studio experience, a tablet or laptop is recommended.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   if (!activeBoard) {
     return (
       <div className="studio-canvas-wrapper">
@@ -1197,7 +1241,6 @@ function CardView({ card, isAbs, gridSpan, board, onUpdate, onDelete, zRef, them
     const newZ = ++zRef.current;
     el.style.zIndex = String(newZ);
 
-    // Clamp so cards can't slide under the sidebar / above the toolbar.
     const parent = el.parentElement;
     const maxX = () => Math.max(0, (parent?.clientWidth  || 0) - el.offsetWidth);
     const maxY = () => Math.max(0, (parent?.clientHeight || 0) - el.offsetHeight);
@@ -1212,11 +1255,13 @@ function CardView({ card, isAbs, gridSpan, board, onUpdate, onDelete, zRef, them
       const nx = Math.min(maxX(), Math.max(0, ev.clientX - startX));
       const ny = Math.min(maxY(), Math.max(0, ev.clientY - startY));
       onUpdate({ ...board, cards: board.cards.map((c) => (c.id === card.id ? { ...c, x: nx, y: ny, z: newZ } : c)) });
-      document.removeEventListener("mousemove", onMove);
-      document.removeEventListener("mouseup", onUp);
+      document.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerup", onUp);
+      document.removeEventListener("pointercancel", onUp);
     };
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseup", onUp);
+    document.addEventListener("pointermove", onMove);
+    document.addEventListener("pointerup", onUp);
+    document.addEventListener("pointercancel", onUp);
   };
 
   const startResize = (e) => {
@@ -1228,8 +1273,6 @@ function CardView({ card, isAbs, gridSpan, board, onUpdate, onDelete, zRef, them
       sh = card.h;
     const el = e.currentTarget.closest(".studio-card");
 
-    // Same clamp logic: width capped so the right edge of the card never
-    // crosses into the sidebar.
     const parent = el?.parentElement;
     const maxW = () => Math.max(40, (parent?.clientWidth  || 0) - (el?.offsetLeft || 0));
     const maxH = () => Math.max(40, (parent?.clientHeight || 0) - (el?.offsetTop  || 0));
@@ -1244,11 +1287,13 @@ function CardView({ card, isAbs, gridSpan, board, onUpdate, onDelete, zRef, them
       const nw = Math.min(maxW(), Math.max(40, sw + ev.clientX - startX));
       const nh = Math.min(maxH(), Math.max(40, sh + ev.clientY - startY));
       onUpdate({ ...board, cards: board.cards.map((c) => (c.id === card.id ? { ...c, w: nw, h: nh } : c)) });
-      document.removeEventListener("mousemove", onMove);
-      document.removeEventListener("mouseup", onUp);
+      document.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerup", onUp);
+      document.removeEventListener("pointercancel", onUp);
     };
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseup", onUp);
+    document.addEventListener("pointermove", onMove);
+    document.addEventListener("pointerup", onUp);
+    document.addEventListener("pointercancel", onUp);
   };
 
   const style = isAbs
@@ -1291,9 +1336,9 @@ function CardView({ card, isAbs, gridSpan, board, onUpdate, onDelete, zRef, them
       el.style.transform = `rotate(${next}deg)`;
     };
     const onUp = () => {
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
-      // Click (no drag) → +90° quarter turn. Drag → commit the dragged angle.
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+      document.removeEventListener('pointercancel', onUp);
       const next = dragged ? latestRot : (((startRot + 90) % 360) + 360) % 360;
       el.style.transform = `rotate(${next}deg)`;
       onUpdate({
@@ -1302,21 +1347,22 @@ function CardView({ card, isAbs, gridSpan, board, onUpdate, onDelete, zRef, them
           c.id === card.id ? { ...c, rotation: next } : c),
       });
     };
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+    document.addEventListener('pointercancel', onUp);
   };
 
   return (
     <div
       className={isDieCut ? 'studio-card studio-card--sticker' : 'studio-card'}
       style={{ ...style, background: isDieCut ? 'transparent' : theme ? cardBg : undefined }}
-      onMouseDown={(e) => { onSelect(); startDrag(e); }}
+      onPointerDown={(e) => { onSelect(); startDrag(e); }}
     >
       {isSelected && (
         <div className="studio-card-controls" style={{ opacity: 1 }}>
           <button
             className="studio-card-rotate"
-            onMouseDown={startRotate}
+            onPointerDown={startRotate}
             title="Drag to rotate (hold Shift to snap)"
             style={{
               background: 'rgba(255,255,255,0.9)',
@@ -1419,7 +1465,7 @@ function CardView({ card, isAbs, gridSpan, board, onUpdate, onDelete, zRef, them
       )}
 
       {isAbs && isSelected && (
-        <div className="studio-card-resize" onMouseDown={startResize}>
+        <div className="studio-card-resize" onPointerDown={startResize}>
           <div className="studio-card-resize-line" />
         </div>
       )}
