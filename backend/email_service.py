@@ -6,9 +6,40 @@ from email.mime.text      import MIMEText
 
 from config import (
     GMAIL_USER, GMAIL_APP_PASSWORD,
+    BREVO_API_KEY, BREVO_FROM_EMAIL, BREVO_FROM_NAME,
     RESEND_API_KEY, RESEND_FROM,
     logger,
 )
+
+
+def _send_via_brevo(to: str, subject: str, html: str) -> bool:
+    if not BREVO_FROM_EMAIL:
+        logger.error("[EMAIL] ✗ BREVO_API_KEY set but BREVO_FROM_EMAIL missing — set the verified sender email")
+        return False
+    try:
+        r = requests.post(
+            "https://api.brevo.com/v3/smtp/email",
+            headers={
+                "api-key":      BREVO_API_KEY,
+                "Content-Type": "application/json",
+                "Accept":       "application/json",
+            },
+            json={
+                "sender":      {"name": BREVO_FROM_NAME, "email": BREVO_FROM_EMAIL},
+                "to":          [{"email": to}],
+                "subject":     subject,
+                "htmlContent": html,
+            },
+            timeout=15,
+        )
+        if 200 <= r.status_code < 300:
+            logger.info(f"[EMAIL] ✓ sent to {to} via Brevo")
+            return True
+        logger.error(f"[EMAIL] ✗ Brevo {r.status_code}: {r.text[:200]}")
+        return False
+    except Exception as exc:
+        logger.error(f"[EMAIL] ✗ Brevo transport error: {exc}")
+        return False
 
 
 def _send_via_resend(to: str, subject: str, html: str) -> bool:
@@ -62,9 +93,12 @@ def _send_via_smtp(to: str, subject: str, html: str) -> bool:
 
 
 def send_email(to: str, subject: str, html: str) -> bool:
-    """Send transactional email. Prefers Resend (HTTPS, works on hosts that
-    block outbound SMTP like Render free tier). Falls back to Gmail SMTP when
-    RESEND_API_KEY isn't configured."""
+    """Send transactional email. Picks the first configured transport in order:
+    Brevo (highest free quota, single-sender verified), then Resend, then Gmail
+    SMTP. The HTTPS-based providers work on hosts that block outbound SMTP
+    (Render free tier); SMTP remains the local-dev default."""
+    if BREVO_API_KEY:
+        return _send_via_brevo(to, subject, html)
     if RESEND_API_KEY:
         return _send_via_resend(to, subject, html)
     return _send_via_smtp(to, subject, html)

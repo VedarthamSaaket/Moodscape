@@ -21,8 +21,12 @@ SPOTIFY_SCOPES        = os.getenv("SPOTIFY_SCOPES")
 YOUTUBE_API_KEY       = os.getenv("YOUTUBE_API_KEY")
 GMAIL_USER            = os.getenv("GMAIL_USER")
 GMAIL_APP_PASSWORD    = os.getenv("GMAIL_APP_PASSWORD")
-# Resend HTTP API — preferred on hosts that block SMTP (e.g. Render free).
-# When RESEND_API_KEY is set, email_service uses Resend instead of Gmail SMTP.
+# Brevo / Resend HTTP APIs — preferred on hosts that block SMTP (e.g. Render
+# free tier). Brevo wins when both are set: 300/day vs 100/day on free tiers,
+# and its single-sender verification flow doesn't require a custom domain.
+BREVO_API_KEY         = os.getenv("BREVO_API_KEY")
+BREVO_FROM_EMAIL      = os.getenv("BREVO_FROM_EMAIL")          # e.g. you@gmail.com
+BREVO_FROM_NAME       = os.getenv("BREVO_FROM_NAME", "MoodScape")
 RESEND_API_KEY        = os.getenv("RESEND_API_KEY")
 RESEND_FROM           = os.getenv("RESEND_FROM", "MoodScape <onboarding@resend.dev>")
 
