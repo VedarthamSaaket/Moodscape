@@ -24,10 +24,32 @@ sp_oauth = SpotifyOAuth(
 auth.sp_oauth = sp_oauth
 
 
+def _init_all_schemas() -> None:
+    """Create every router's table at startup, eagerly.
+
+    Previously each router created its table lazily on first authenticated
+    request (_ensure_schema guarded by a per-process flag). That silently
+    failed in two ways: (1) if the very first hit was unauthenticated it 401'd
+    before reaching _ensure_schema, and (2) any transient hiccup left the table
+    missing with the flag still False, so reads returned an empty list that
+    looked exactly like "you have no saved songs". Tables that never got
+    created here: saved_songs, player_queue, saint_stats, quiz_results, boards
+    — which is why saved songs vanished on reload. Creating them up front, once,
+    removes the entire failure class.
+    """
+    from config import logger
+    for mod in (studio, quiz, youtube, saved, player, saint):
+        try:
+            mod._ensure_schema()
+        except Exception as exc:
+            logger.error(f"[STARTUP] schema init failed for {mod.__name__}: {exc}")
+
+
 @asynccontextmanager
 async def lifespan(application: FastAPI):
     validate_secrets()
     init_db_pool()
+    _init_all_schemas()
     yield
     close_db_pool()
 
