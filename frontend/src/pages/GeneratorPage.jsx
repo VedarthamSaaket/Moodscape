@@ -479,6 +479,30 @@ export default function GeneratorPage() {
   };
 
   const uploadCoverToSpotify = (tok, pid, seed) => {
+    // Spotify's create-playlist write and the /images read endpoint hit
+    // different replicas, so a same-tick upload often 404s ("playlist not
+    // found") even though the playlist exists. Give the write a moment to
+    // propagate, then retry on 404 a few times with backoff.
+    const putCover = (b64, attempt = 0) =>
+      fetch(`https://api.spotify.com/v1/playlists/${pid}/images`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${tok}`, 'Content-Type': 'image/jpeg' },
+        body: b64,
+      }).then(async r => {
+        if (r.ok) {
+          console.log('[COVER] uploaded successfully');
+          return;
+        }
+        const t = await r.text();
+        if (r.status === 404 && attempt < 4) {
+          const wait = 1500 * (attempt + 1);
+          console.warn(`[COVER] 404 (replica lag), retrying in ${wait}ms (attempt ${attempt + 1}/4)`);
+          setTimeout(() => putCover(b64, attempt + 1), wait);
+          return;
+        }
+        console.warn('[COVER] rejected:', r.status, t);
+      }).catch(e => console.warn('[COVER] fetch error:', e));
+
     setTimeout(() => {
       try {
         const svgStr = generateCoverSVG(seed);
@@ -497,21 +521,7 @@ export default function GeneratorPage() {
           URL.revokeObjectURL(blobUrl);
 
           const b64 = canvas.toDataURL('image/jpeg', 0.92).split(',')[1];
-
-          fetch(`https://api.spotify.com/v1/playlists/${pid}/images`, {
-            method: 'PUT',
-            headers: { Authorization: `Bearer ${tok}`, 'Content-Type': 'image/jpeg' },
-            body: b64,
-          })
-            .then(async r => {
-              if (!r.ok) {
-                const t = await r.text();
-                console.warn('[COVER] rejected:', r.status, t);
-              } else {
-                console.log('[COVER] uploaded successfully');
-              }
-            })
-            .catch(e => console.warn('[COVER] fetch error:', e));
+          putCover(b64);
         };
 
         img.onerror = (e) => console.warn('[COVER] SVG failed to load as image:', e);
@@ -519,7 +529,7 @@ export default function GeneratorPage() {
       } catch (e) {
         console.warn('[COVER] unexpected error:', e);
       }
-    }, 800);
+    }, 2500);
   };
 
   const handleSimilarAdded = useCallback((newTracks) => {
