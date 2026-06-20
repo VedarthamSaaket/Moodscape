@@ -9,8 +9,8 @@ _db_pool: Optional[pg_pool.ThreadedConnectionPool] = None
 def init_db_pool() -> None:
     global _db_pool
     _db_pool = pg_pool.ThreadedConnectionPool(
-        minconn=2,
-        maxconn=20,
+        minconn=1,
+        maxconn=10,
         dsn=DATABASE_URL,
     )
     logger.info("[STARTUP] DB connection pool initialised ✓")
