@@ -3,7 +3,7 @@ import hmac
 import secrets
 import bcrypt
 import psycopg2
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, HTTPException, Request
 
@@ -55,6 +55,12 @@ def _ensure_reset_schema() -> None:
                     ADD COLUMN IF NOT EXISTS reset_token_expiry TIMESTAMPTZ
                 """
             )
+            # Migrate legacy naive verify_expiry to TIMESTAMPTZ so comparisons
+            # against timezone-aware now() don't raise TypeError.
+            cur.execute(
+                "ALTER TABLE users ALTER COLUMN verify_expiry TYPE TIMESTAMPTZ "
+                "USING verify_expiry AT TIME ZONE 'UTC'"
+            )
             conn.commit()
         _RESET_SCHEMA_READY = True
         logger.info("[RESET] password-reset columns ready")
@@ -75,7 +81,7 @@ def signup_user(user: UserCreate, request: Request):
 
     hashed = bcrypt.hashpw(user.password.encode(), bcrypt.gensalt(rounds=12))
     code   = str(random.randint(100000, 999999))
-    expiry = datetime.utcnow() + timedelta(minutes=15)
+    expiry = datetime.now(timezone.utc) + timedelta(minutes=15)
 
     try:
         with conn.cursor() as cur:
@@ -128,7 +134,7 @@ def verify_email(data: VerifyEmail):
 
             if is_verified:
                 return {"message": "Email already verified. Please sign in."}
-            if datetime.utcnow() > db_expiry:
+            if datetime.now(timezone.utc) > db_expiry:
                 raise HTTPException(status_code=400, detail="Code expired — click 'Resend code'.")
             if not hmac.compare_digest(data.code.strip(), db_code.strip()):
                 raise HTTPException(status_code=400, detail="Incorrect code. Try again.")
@@ -155,7 +161,7 @@ def resend_verify_code(data: ResendCode):
         raise HTTPException(status_code=500, detail="Database connection failed")
 
     code   = str(random.randint(100000, 999999))
-    expiry = datetime.utcnow() + timedelta(minutes=15)
+    expiry = datetime.now(timezone.utc) + timedelta(minutes=15)
 
     try:
         with conn.cursor() as cur:
@@ -200,7 +206,7 @@ def forgot_password(data: ForgotPassword):
     if not conn:
         raise HTTPException(status_code=500, detail="Database connection failed")
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     subject = html = None
     try:
         with conn.cursor() as cur:
@@ -249,7 +255,7 @@ def verify_reset_code(data: VerifyResetCode):
             if not row or not row[0]:
                 raise HTTPException(status_code=400, detail="Invalid or expired code.")
             db_code, db_expiry = row
-            if db_expiry and datetime.utcnow() > db_expiry:
+            if db_expiry and datetime.now(timezone.utc) > db_expiry:
                 raise HTTPException(status_code=400, detail="Code expired — request a new one.")
             if not hmac.compare_digest(data.code.strip(), db_code.strip()):
                 raise HTTPException(status_code=400, detail="Incorrect code. Try again.")
@@ -262,7 +268,7 @@ def verify_reset_code(data: VerifyResetCode):
                     reset_code = NULL, reset_expiry = NULL
                 WHERE email = %s
                 """,
-                (token, datetime.utcnow() + timedelta(minutes=15), data.email),
+                (token, datetime.now(timezone.utc) + timedelta(minutes=15), data.email),
             )
             conn.commit()
     finally:
@@ -296,7 +302,7 @@ def reset_password(data: ResetPassword):
             if not row:
                 raise HTTPException(status_code=400, detail="Invalid or expired reset link.")
             email, expiry = row
-            if expiry and datetime.utcnow() > expiry:
+            if expiry and datetime.now(timezone.utc) > expiry:
                 raise HTTPException(status_code=400, detail="This reset link has expired. Request a new one.")
 
             hashed = bcrypt.hashpw(data.newPassword.encode(), bcrypt.gensalt(rounds=12))
@@ -450,4 +456,4 @@ async def spotify_refresh(request: Request):
 
 @router.get("/health")
 def health_check():
-    return {"status": "ok", "timestamp": datetime.utcnow().isoformat()}
+    return {"status": "ok", "timestamp": datetime.now(timezone.utc).isoformat()}
