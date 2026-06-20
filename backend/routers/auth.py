@@ -31,21 +31,36 @@ sp_oauth = None
 
 _DUMMY_HASH = bcrypt.hashpw(b"dummy_constant_password_for_timing", bcrypt.gensalt(rounds=12))
 
-# Password-reset columns are added to the existing users table on first use,
-# the same idempotent pattern the quiz/youtube/studio routers use for theirs.
-_RESET_SCHEMA_READY = False
+_SCHEMA_READY = False
 
 
-def _ensure_reset_schema() -> None:
-    global _RESET_SCHEMA_READY
-    if _RESET_SCHEMA_READY:
+def _ensure_schema() -> None:
+    global _SCHEMA_READY
+    if _SCHEMA_READY:
         return
     conn = get_db_connection()
     if not conn:
-        logger.error("[RESET] Cannot init schema, DB unavailable")
+        logger.error("[AUTH] Cannot init schema, DB unavailable")
         return
     try:
         with conn.cursor() as cur:
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS users (
+                    id                   SERIAL PRIMARY KEY,
+                    email                TEXT        NOT NULL UNIQUE,
+                    password_hash        TEXT        NOT NULL,
+                    is_verified          BOOLEAN     NOT NULL DEFAULT FALSE,
+                    verify_code          TEXT,
+                    verify_expiry        TIMESTAMPTZ,
+                    reset_code           TEXT,
+                    reset_expiry         TIMESTAMPTZ,
+                    reset_token          TEXT,
+                    reset_token_expiry   TIMESTAMPTZ,
+                    created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                );
+                """
+            )
             cur.execute(
                 """
                 ALTER TABLE users
@@ -55,19 +70,20 @@ def _ensure_reset_schema() -> None:
                     ADD COLUMN IF NOT EXISTS reset_token_expiry TIMESTAMPTZ
                 """
             )
-            # Migrate legacy naive verify_expiry to TIMESTAMPTZ so comparisons
-            # against timezone-aware now() don't raise TypeError.
             cur.execute(
                 "ALTER TABLE users ALTER COLUMN verify_expiry TYPE TIMESTAMPTZ "
                 "USING verify_expiry AT TIME ZONE 'UTC'"
             )
             conn.commit()
-        _RESET_SCHEMA_READY = True
-        logger.info("[RESET] password-reset columns ready")
+        _SCHEMA_READY = True
+        logger.info("[AUTH] users table ready")
     except Exception as exc:
-        logger.error(f"[RESET] Schema init failed: {exc}")
+        logger.error(f"[AUTH] Schema init failed: {exc}")
     finally:
         release_db_connection(conn)
+
+
+_ensure_reset_schema = _ensure_schema
 
 
 @router.post("/api/signup", status_code=201)

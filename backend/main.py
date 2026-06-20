@@ -39,7 +39,7 @@ def _init_all_schemas() -> None:
     removes the entire failure class.
     """
     from config import logger
-    for mod in (studio, quiz, youtube, saved, player, saint):
+    for mod in (auth, studio, quiz, youtube, saved, player, saint):
         try:
             mod._ensure_schema()
         except Exception as exc:
