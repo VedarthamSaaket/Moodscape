@@ -1,11 +1,14 @@
 import random
 import hmac
 import secrets
+import urllib.parse
+
 import bcrypt
 import psycopg2
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import RedirectResponse
 
 from security import (
     generate_session_token,
@@ -446,36 +449,76 @@ def _upsert_spotify_user(email: str) -> None:
 
 
 @router.get("/api/callback/spotify")
-def spotify_callback(code: str):
+def spotify_callback(code: str, request: Request):
+    """Exchange the Spotify auth code for tokens.
+
+    - If the request comes from a browser navigation (Accept: text/html), we
+      redirect the browser to the frontend with tokens in URL query params.
+      This handles the case where SPOTIFY_REDIRECT_URI points to the backend.
+    - If the request comes from fetch/XHR (Accept: */*), we return JSON so the
+      frontend CallbackPage can store tokens directly. This handles the case
+      where SPOTIFY_REDIRECT_URI points to the frontend.
+    """
     try:
         token_info = sp_oauth.get_access_token(code)
     except Exception as exc:
         logger.error(f"[SPOTIFY] Token exchange error: {exc}")
+        accept = (request.headers.get("accept") or "")
+        if "text/html" in accept:
+            fail_url = f"{FRONTEND_URL.rstrip('/')}/generator?spotify=failed"
+            return RedirectResponse(url=fail_url)
         raise HTTPException(status_code=400, detail="Auth failed")
 
-    access_token  = token_info.get("access_token")
-    refresh_token = token_info.get("refresh_token")
-    resp = {"access_token": access_token, "refresh_token": refresh_token}
+    access_token  = token_info.get("access_token", "")
+    refresh_token = token_info.get("refresh_token", "")
 
     # Bridge: turn the Spotify identity into an app session so saved songs etc.
-    # persist across reloads and devices. If anything here fails we still return
-    # the Spotify tokens (playback keeps working); the user just won't have data
-    # persistence until a successful login.
+    # persist across reloads and devices. If anything here fails we still
+    # forward the Spotify tokens so playback works — the user just won't have
+    # data persistence until a successful sign-in.
+    session_token = None
     try:
         profile = get_spotify_user_profile(access_token)
-        email = (profile or {}).get("email")
-        if email:
-            email = email.strip().lower()
-            _upsert_spotify_user(email)
-            resp["session_token"] = generate_session_token(email)
-            logger.info(f"[SPOTIFY] bridged session for {email}")
+        if not profile:
+            logger.warning("[SPOTIFY] profile returned None")
         else:
-            logger.warning("[SPOTIFY] profile had no email; no app session minted")
+            email = (profile or {}).get("email")
+            if email:
+                email = email.strip().lower()
+                _upsert_spotify_user(email)
+                session_token = generate_session_token(email)
+                logger.info(f"[SPOTIFY] bridged session for {email}")
+            else:
+                logger.warning("[SPOTIFY] profile had no email; no app session minted")
     except HTTPException:
         raise
     except Exception as exc:
         logger.error(f"[SPOTIFY] session bridge failed: {exc}")
 
+    accept = (request.headers.get("accept") or "")
+    is_browser_nav = "text/html" in accept
+
+    if is_browser_nav:
+        # Browser navigation — redirect to frontend with tokens in URL params.
+        params = [
+            ("spotify_auth", "success"),
+            ("access_token", access_token),
+            ("refresh_token", refresh_token),
+        ]
+        if session_token:
+            params.append(("session_token", session_token))
+        query = "&".join(
+            f"{urllib.parse.quote(k)}={urllib.parse.quote(v)}"
+            for k, v in params if v
+        )
+        redirect_url = f"{FRONTEND_URL.rstrip('/')}/callback?{query}"
+        logger.info(f"[SPOTIFY] redirecting browser to {redirect_url[:80]}...")
+        return RedirectResponse(url=redirect_url)
+
+    # fetch/XHR — return JSON as before.
+    resp = {"access_token": access_token, "refresh_token": refresh_token}
+    if session_token:
+        resp["session_token"] = session_token
     return resp
 
 

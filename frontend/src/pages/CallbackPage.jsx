@@ -32,6 +32,23 @@ function CallbackPage() {
 
     if (spotifyAuthStatus) {
       if (spotifyAuthStatus === 'success') {
+        // Backend redirected here after exchanging the code. Tokens are in the
+        // URL query params — extract and persist them before navigating away.
+        const accessToken  = searchParams.get('access_token');
+        const refreshToken = searchParams.get('refresh_token');
+        const sessionToken = searchParams.get('session_token');
+
+        if (accessToken)  localStorage.setItem('spotify_token', accessToken);
+        if (refreshToken) localStorage.setItem('spotify_refresh_token', refreshToken);
+        // App session token bridged from the Spotify identity. ONLY set it
+        // when no app token exists yet — otherwise a user who signed up
+        // with email A and links Spotify under email B would silently
+        // swap identities and lose access to their saved_songs/boards/quiz
+        // tied to A. Spotify auth is for playback; existing app identity wins.
+        if (sessionToken && !localStorage.getItem('authToken')) {
+          localStorage.setItem('authToken', sessionToken);
+        }
+
         setIsLoggedIn(true);
         navigate('/generator');
       } else {
