@@ -18,6 +18,23 @@
     drop-shadow(0 6px 14px rgba(0, 0, 0, 0.55))
     drop-shadow(0 1px 0 rgba(255, 255, 255, 0.04));
   transition: filter 0.18s ease;
+  /* Tapping/clicking the pixel SVG was triggering text-selection (blue box
+     over the pixel cells) and the mobile tap highlight. The radio is purely
+     a button — no text in it should ever be selectable, and the iOS callout
+     menu on long-press is just noise. Disable across the whole subtree. */
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+}
+
+.pixel-radio,
+.pixel-radio * {
+  -webkit-user-drag: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .pixel-radio:hover {

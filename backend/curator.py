@@ -121,13 +121,24 @@ def _safe_playlist_text(s: str, max_len: int) -> str:
 
 
 def create_curator_playlist(name: str, description: str) -> dict:
-    """Create an UNLISTED playlist on the curator account.
+    """Create a COLLABORATIVE PRIVATE playlist on the curator account.
 
-    `public=False` is Spotify's "unlisted" mode — playlist is NOT shown on the
-    curator's public profile, but IS reachable via direct share URL by anyone
-    (Spotify treats the URL as a capability token). This is exactly what we
-    want: each user sees only the playlist they generated when they open the
-    link, and curator profile pollution stays at zero.
+    The combination `public=False, collaborative=True` is Spotify's only
+    "unlisted-style" mode: the playlist is NOT visible on the curator's
+    public profile and NOT searchable, but IS accessible via the share URL
+    by anyone the URL is given to (the URL acts as a capability token, the
+    same way YouTube unlisted videos work).
+
+    Trade-off: collaborative semantics also let URL-holders edit the
+    playlist. For our flow that's actually a feature — the end user can
+    rearrange or trim THEIR copy without affecting other users. The DB
+    mapping (user_email → playlist_id) is the audit trail if a URL leaks.
+
+    Previous attempts:
+      • `public=False, collaborative=False` — truly private, share URL 404s
+        for everyone except curator. Broke the whole hand-off.
+      • `public=True` — works but exposes every generated playlist on the
+        curator's public profile, breaking user-to-user isolation.
     """
     token   = get_curator_access_token()
     user_id = get_curator_user_id()
@@ -135,7 +146,14 @@ def create_curator_playlist(name: str, description: str) -> dict:
     safe_name = _safe_playlist_text(name, 100) or "Playlist"
     safe_desc = _safe_playlist_text(description, 300)
 
-    body = {"name": safe_name, "description": safe_desc, "public": False}
+    # Spotify requires `public=false` when `collaborative=true` — the API
+    # rejects collaborative-public combos with HTTP 400.
+    body = {
+        "name":          safe_name,
+        "description":   safe_desc,
+        "public":        False,
+        "collaborative": True,
+    }
     logger.info(f"[CURATOR] creating playlist user_id={user_id!r} name={safe_name!r} desc_len={len(safe_desc)}")
     res = requests.post(
         f"https://api.spotify.com/v1/users/{user_id}/playlists",

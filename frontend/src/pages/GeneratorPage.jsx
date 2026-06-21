@@ -388,12 +388,30 @@ export default function GeneratorPage() {
     clearQuizStyle();
   };
 
-  const [playlist, setPlaylist] = useState(null);
-  const [playlistUrl, setPlaylistUrl] = useState(null);
-  const [playlistId, setPlaylistId] = useState(null);
-  const [playlistNameResult, setPlaylistNameResult] = useState('');
+  // Hydrate the result panel from sessionStorage so a mobile tab that gets
+  // evicted by memory pressure (very common after clicking "Open in Spotify"
+  // and bouncing between apps) doesn't wipe the generated playlist when the
+  // user comes back. sessionStorage clears on tab close, so the user still
+  // gets a fresh slate next session — we just survive the silent reload.
+  const _hydrated = (() => {
+    try { return JSON.parse(sessionStorage.getItem('mm_last_playlist') || 'null') || {}; }
+    catch { return {}; }
+  })();
+  const [playlist, setPlaylist] = useState(_hydrated.playlist || null);
+  const [playlistUrl, setPlaylistUrl] = useState(_hydrated.playlistUrl || null);
+  const [playlistId, setPlaylistId] = useState(_hydrated.playlistId || null);
+  const [playlistNameResult, setPlaylistNameResult] = useState(_hydrated.playlistNameResult || '');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (!playlist) return;
+    try {
+      sessionStorage.setItem('mm_last_playlist', JSON.stringify({
+        playlist, playlistUrl, playlistId, playlistNameResult,
+      }));
+    } catch { /* quota or disabled — fine, no-op */ }
+  }, [playlist, playlistUrl, playlistId, playlistNameResult]);
 
   const sessionToken = localStorage.getItem('authToken');
   const coverDataUrl = svgToDataUrl(generateCoverSVG(coverSeed));

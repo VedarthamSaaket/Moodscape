@@ -268,6 +268,7 @@ export default function PixelRadio({ on, onToggle }) {
         xmlns="http://www.w3.org/2000/svg"
         shapeRendering="crispEdges"
         className="pixel-radio__svg"
+        draggable="false"
       >
         {/* Floating music notes — drawn first so they sit "behind" the radio
             in the SVG stacking order but visually above thanks to their y

@@ -279,8 +279,11 @@
 
 @media (max-width: 640px) {
   .gp-bar { height: 64px; gap: 10px; padding: 0 12px; }
-  .gp-title, .gp-artist { max-width: 46vw; }
-  .gp-right .gp-mini:not(.gp-close) { display: none; }
+  .gp-title, .gp-artist { max-width: 38vw; }
+  /* Stop button MUST stay visible on mobile — previously hidden to save
+     horizontal space, but users had no way to halt playback short of force-
+     closing the tab. Button is now icon-only (⏹︎), fits next to the close. */
+  .gp-right .gp-mini { padding: 6px 8px; }
   .gp-host--expanded { right: 10px; bottom: 80px; width: 220px; height: 124px; }
 }
 

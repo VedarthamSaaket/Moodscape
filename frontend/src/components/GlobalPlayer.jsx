@@ -365,7 +365,7 @@ export default function GlobalPlayer() {
           </div>
 
           <div className="gp-right">
-            <button className="gp-mini gp-glyph" onClick={stopPlayback} title="Stop" aria-label="Stop playback">{'⏹︎'} stop</button>
+            <button className="gp-mini gp-glyph" onClick={stopPlayback} title="Stop" aria-label="Stop playback">{'⏹︎'}</button>
             <button className="gp-mini gp-close gp-glyph" onClick={() => setMinimized(true)}
               title="Minimize" aria-label="Minimize player">{'✕'}</button>
           </div>
