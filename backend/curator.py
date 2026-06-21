@@ -100,6 +100,26 @@ def get_curator_user_id() -> str:
     return _user_cache["user_id"]
 
 
+def _safe_playlist_text(s: str, max_len: int) -> str:
+    """Strip characters Spotify's playlist API rejects (vague HTTP 400 with no
+    detail). Pipes, ampersands and angle brackets are the common offenders;
+    Spotify treats some as markup and rejects the whole body. Also trims to the
+    documented max length (100 for name, 300 for description)."""
+    if not s:
+        return ""
+    # Replace problematic chars with safe equivalents; collapse whitespace.
+    cleaned = (s
+        .replace("|", "-")
+        .replace("<", "")
+        .replace(">", "")
+        .replace("\r", " ")
+        .replace("\n", " ")
+        .replace('"', "'")
+    )
+    cleaned = " ".join(cleaned.split())
+    return cleaned[:max_len].strip()
+
+
 def create_curator_playlist(name: str, description: str) -> dict:
     """Create an UNLISTED playlist on the curator account.
 
@@ -111,14 +131,23 @@ def create_curator_playlist(name: str, description: str) -> dict:
     """
     token   = get_curator_access_token()
     user_id = get_curator_user_id()
+
+    safe_name = _safe_playlist_text(name, 100) or "Playlist"
+    safe_desc = _safe_playlist_text(description, 300)
+
+    body = {"name": safe_name, "description": safe_desc, "public": False}
+    logger.info(f"[CURATOR] creating playlist user_id={user_id!r} name={safe_name!r} desc_len={len(safe_desc)}")
     res = requests.post(
         f"https://api.spotify.com/v1/users/{user_id}/playlists",
         headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-        json={"name": name, "description": description, "public": False, "collaborative": False},
+        json=body,
         timeout=10,
     )
     if res.status_code not in (200, 201):
-        logger.error(f"[CURATOR] create playlist failed: HTTP {res.status_code} {res.text[:200]}")
+        logger.error(
+            f"[CURATOR] create playlist failed: HTTP {res.status_code} "
+            f"body_sent={body} response={res.text[:400]}"
+        )
         raise HTTPException(status_code=502, detail="Could not create playlist on curator account.")
     return res.json()
 
