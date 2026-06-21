@@ -327,6 +327,72 @@ function parseDislikesField(raw) {
   return Array.from(new Set(cleaned)).slice(0, 10);
 }
 
+// Chip-style multi-entry input. Type a name (multi-word OK), press Enter
+// to commit as a removable chip. Used for movie titles and movie stars
+// where each entry contains spaces (so plain space-separation isn't safe).
+// Backspace on an empty input removes the last chip.
+function ChipInput({ label, optional, placeholder, hint, value, onChange, max = 5 }) {
+  const [draft, setDraft] = useState('');
+
+  const addChip = (raw) => {
+    const v = (raw || '').trim();
+    if (!v) return;
+    if (value.some((c) => c.toLowerCase() === v.toLowerCase())) return;
+    if (value.length >= max) return;
+    onChange([...value, v]);
+    setDraft('');
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      addChip(draft);
+    } else if (e.key === 'Backspace' && !draft && value.length > 0) {
+      onChange(value.slice(0, -1));
+    }
+  };
+
+  return (
+    <div className="gen-field">
+      <div className="gen-label-row">
+        <label className="gen-label">
+          {label}{' '}
+          {optional && <span className="gen-label-optional">(optional)</span>}
+        </label>
+        {value.length > 0 && (
+          <span className="gen-pill-count">{value.length} / {max}</span>
+        )}
+      </div>
+      <div className="gen-chip-input">
+        {value.map((chip, i) => (
+          <span key={`${chip}-${i}`} className="gen-chip">
+            {chip}
+            <button
+              type="button"
+              className="gen-chip-x"
+              onClick={() => onChange(value.filter((_, j) => j !== i))}
+              aria-label={`Remove ${chip}`}
+            >×</button>
+          </span>
+        ))}
+        {value.length < max && (
+          <input
+            type="text"
+            className="gen-chip-field"
+            placeholder={value.length === 0 ? placeholder : ''}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={handleKeyDown}
+            onBlur={() => addChip(draft)}
+            maxLength={60}
+          />
+        )}
+      </div>
+      {hint && <p className="gen-field-hint">{hint}</p>}
+    </div>
+  );
+}
+
 export default function GeneratorPage() {
   const [moodText, setMoodText] = useState('');
   const [playlistName, setPlaylistName] = useState('');
@@ -338,7 +404,13 @@ export default function GeneratorPage() {
   const [dislikedText, setDislikedText] = useState('');
   const [trackCountRange, setTrackCountRange] = useState('15-30');
   const [filmIndustry, setFilmIndustry] = useState('');
-  const [movieName, setMovieName] = useState('');
+  // Chip lists — each entry is one movie title / one actor name. Multi-word
+  // entries are committed via Enter so "Mahesh Babu" stays one chip.
+  const [movies, setMovies] = useState([]);
+  const [actors, setActors] = useState([]);
+  // Hard filter on Spotify's `explicit` flag — wired to a UI checkbox below
+  // and propagated to the backend's exclusions builder.
+  const [excludeExplicit, setExcludeExplicit] = useState(false);
   const [coverSeed, setCoverSeed] = useState(() => Math.floor(Math.random() * COVER_PALETTES.length));
 
   const quizStyle      = useQuizStore((s) => s.quizStyle);
@@ -383,6 +455,9 @@ export default function GeneratorPage() {
     setLanguages(['English']);
     setGenres([]);
     setDislikedText('');
+    setMovies([]);
+    setActors([]);
+    setExcludeExplicit(false);
     setStyleBanner(null);
     setStyleContext(null);
     clearQuizStyle();
@@ -449,7 +524,10 @@ export default function GeneratorPage() {
         trackCountRange,
         playlistIntent: moodText.trim() || null,
         filmIndustry: filmIndustry || null,
-        movieName: movieName.trim() || null,
+        movieName: movies[0] || null,            // legacy single-field fallback
+        selectedMovies: movies,
+        selectedActors: actors,
+        excludeExplicit,
         selectedLanguages: languages,
         selectedGenres: genres,
         styleArchetypeId:   styleContext?.id || null,
@@ -653,40 +731,50 @@ export default function GeneratorPage() {
             {isIndian && (
               <div className="gen-indian-block">
                 <p className="gen-indian-heading">🎬 Indian Film Options</p>
-                <div className="gen-row">
-                  <div className="gen-field">
-                    <label className="gen-label">Film industry</label>
-                    <div className="gen-select-wrap">
-                      <select
-                        className="gen-select"
-                        value={filmIndustry}
-                        onChange={e => setFilmIndustry(e.target.value)}
-                      >
-                        {FILM_INDUSTRIES.map(f => (
-                          <option key={f.value} value={f.value}>{f.label}</option>
-                        ))}
-                      </select>
-                      <ChevronIcon />
-                    </div>
-                  </div>
-                  <div className="gen-field">
-                    <label className="gen-label">
-                      Movie / album <span className="gen-label-optional">(optional)</span>
-                    </label>
-                    <input
-                      className="gen-input"
-                      type="text"
-                      placeholder="e.g. Pushpa, RRR, Jawan…"
-                      value={movieName}
-                      onChange={e => setMovieName(e.target.value)}
-                    />
+                <div className="gen-field">
+                  <label className="gen-label">Film industry</label>
+                  <div className="gen-select-wrap">
+                    <select
+                      className="gen-select"
+                      value={filmIndustry}
+                      onChange={e => setFilmIndustry(e.target.value)}
+                    >
+                      {FILM_INDUSTRIES.map(f => (
+                        <option key={f.value} value={f.value}>{f.label}</option>
+                      ))}
+                    </select>
+                    <ChevronIcon />
                   </div>
                 </div>
-                <p className="gen-field-hint">
-                  A movie name seeds the playlist with its soundtrack, then fills remaining slots mood-matched.
-                </p>
+                <ChipInput
+                  label="Movies / albums"
+                  optional
+                  placeholder="e.g. Pushpa  (press Enter to add another)"
+                  hint="Each movie seeds the playlist with its soundtrack. Press Enter to add more."
+                  value={movies}
+                  onChange={setMovies}
+                />
+                <ChipInput
+                  label="Movie stars / heroes"
+                  optional
+                  placeholder="e.g. Mahesh Babu  (press Enter to add another)"
+                  hint="We'll find each star's hit songs and add them to your playlist."
+                  value={actors}
+                  onChange={setActors}
+                />
               </div>
             )}
+
+            <div className="gen-field gen-explicit-row">
+              <label className="gen-checkbox">
+                <input
+                  type="checkbox"
+                  checked={excludeExplicit}
+                  onChange={(e) => setExcludeExplicit(e.target.checked)}
+                />
+                <span>Hide explicit songs <span className="gen-label-optional">(skip tracks marked “E”)</span></span>
+              </label>
+            </div>
 
             <div className="gen-field">
               <label className="gen-label">Playlist size</label>

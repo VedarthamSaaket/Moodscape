@@ -89,6 +89,10 @@ def normalise_track(t: dict) -> dict:
         "uri":        t.get("uri", ""),
         "artistId":   artist_id,
         "durationMs": t.get("duration_ms") or 0,
+        # Spotify's `explicit` flag — true if the track has Parental Advisory
+        # ("E" badge in the Spotify UI). Used by the explicit-content filter
+        # in exclusions.make_track_filter.
+        "explicit":   bool(t.get("explicit", False)),
     }
 
 
@@ -432,6 +436,11 @@ def get_recommendations_for_bucket(
     # canonical-vocabulary table on our side.
     all_tracks = _filter_by_artist_genres(all_tracks, token, exclusions)
 
+    # Audio-feature vibe filter (sad/happy/energetic/etc). One batched
+    # `/v1/audio-features` call per bucket; no-op when no vibes triggered.
+    if exclusions and getattr(exclusions, "vibe_filters", None):
+        all_tracks = filter_tracks_by_vibe(all_tracks, token, exclusions.vibe_filters)
+
     random.shuffle(all_tracks)
     return all_tracks[:track_count]
 
@@ -485,3 +494,152 @@ def get_recommendations(
 
     random.shuffle(all_tracks)
     return all_tracks
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Actor / "movie star" search.
+# ─────────────────────────────────────────────────────────────────────────────
+# Spotify doesn't tag tracks by acting credit. The next best signal is the
+# album-title text — "Prabhas hits", "<actor> all time best", "<actor> top
+# songs" compilations exist for popular South Indian heroes. Plus a movie
+# soundtrack whose album title or track title contains the actor's name
+# (much rarer). We probe a few query shapes and dedupe.
+def search_actor_songs(token: str, actor_name: str, market: str,
+                       limit: int = 25) -> list:
+    """Search Spotify for tracks associated with a movie star. Returns a list
+    of NORMALISED track dicts (already passed through normalise_track). The
+    caller filters / dedups further. Empty list on miss."""
+    if not actor_name or not actor_name.strip():
+        return []
+    name = actor_name.strip()
+    queries = [
+        f"{name} hits",
+        f"{name} songs",
+        f"{name} top tracks",
+        f"{name} all time best",
+        f"{name} super hits",
+    ]
+    out: list = []
+    seen_uris: set = set()
+    headers = {"Authorization": f"Bearer {token}"}
+    for q in queries:
+        try:
+            res = requests.get(
+                "https://api.spotify.com/v1/search",
+                headers=headers,
+                params={"q": q, "type": "track", "limit": min(limit, 25), "market": market},
+                timeout=6,
+            )
+            if res.status_code != 200:
+                continue
+            items = res.json().get("tracks", {}).get("items", [])
+            for t in items:
+                uri = t.get("uri", "")
+                if uri and uri not in seen_uris:
+                    seen_uris.add(uri)
+                    out.append(normalise_track(t))
+        except Exception as exc:
+            logger.warning(f"[ACTOR_SEARCH] '{q}' failed: {exc}")
+        if len(out) >= limit:
+            break
+    return out[:limit]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Audio-features batched lookup (for the vibe-exclusion filter).
+# ─────────────────────────────────────────────────────────────────────────────
+def fetch_audio_features_batch(token: str, track_ids: list) -> dict:
+    """Batch-fetch `/v1/audio-features` for up to 100 IDs at a time. Returns
+    {track_id: features_dict}. Tracks Spotify has no analysis for map to {}."""
+    out: dict = {}
+    if not track_ids:
+        return out
+    headers = {"Authorization": f"Bearer {token}"}
+    seen: set = set()
+    deduped = [t for t in track_ids if t and not (t in seen or seen.add(t))]
+    for i in range(0, len(deduped), 100):
+        chunk = deduped[i:i + 100]
+        try:
+            res = requests.get(
+                "https://api.spotify.com/v1/audio-features",
+                headers=headers,
+                params={"ids": ",".join(chunk)},
+                timeout=8,
+            )
+            if res.status_code != 200:
+                logger.warning(f"[AUDIO_FEATURES] HTTP {res.status_code}")
+                continue
+            for af in (res.json() or {}).get("audio_features", []) or []:
+                if af and af.get("id"):
+                    out[af["id"]] = af
+        except Exception as exc:
+            logger.warning(f"[AUDIO_FEATURES] fetch error: {exc}")
+    return out
+
+
+def filter_tracks_by_vibe(tracks: list, token: str, vibe_filters: list) -> list:
+    """Drop tracks whose audio-features fall into any of the supplied vibe
+    drop-ranges. Safe to call with no vibe filters (returns tracks unchanged)
+    or no tracks (returns empty)."""
+    from exclusions import feature_in_drop_range
+    if not vibe_filters or not tracks:
+        return tracks
+
+    ids: list = []
+    for t in tracks:
+        uri = t.get("uri", "") or ""
+        if uri.startswith("spotify:track:"):
+            ids.append(uri.split(":", 2)[2])
+    if not ids:
+        return tracks
+
+    features_by_id = fetch_audio_features_batch(token, ids)
+    if not features_by_id:
+        return tracks
+
+    kept = []
+    dropped = 0
+    for t, tid in zip(tracks, ids):
+        af = features_by_id.get(tid) or {}
+        if feature_in_drop_range(af, vibe_filters):
+            dropped += 1
+            continue
+        kept.append(t)
+    if dropped:
+        logger.info(f"[VIBE] audio-feature filter dropped {dropped} track(s)")
+    return kept
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Film-vs-indie classification for Indian playlists.
+# ─────────────────────────────────────────────────────────────────────────────
+# A track is "film" if its primary artist's Spotify genre tags hit a film-
+# music tag (filmi / bollywood / tollywood / kollywood / sandalwood / mollywood
+# / hindi film …) — these are the tags Spotify itself uses to mark playback
+# acts that work primarily as movie playback artists. Untagged artists go to
+# indie (conservative — better to mix in than misclassify as film).
+_FILM_GENRE_TOKENS = {
+    "filmi", "indian film", "hindi film", "tamil film", "telugu film",
+    "kannada film", "malayalam film", "punjabi film",
+    "bollywood", "tollywood", "kollywood", "sandalwood", "mollywood",
+    "modern bollywood", "classic bollywood",
+}
+
+
+def classify_film_vs_indie(tracks: list, token: str) -> tuple[list, list]:
+    """Split tracks into (film_tracks, indie_tracks) by primary artist genre."""
+    if not tracks:
+        return [], []
+    artist_ids = [t.get("artistId", "") for t in tracks if t.get("artistId")]
+    genres_by_artist = fetch_artist_genres_batch(token, artist_ids) if artist_ids else {}
+
+    film, indie = [], []
+    for t in tracks:
+        aid = t.get("artistId", "")
+        tags = genres_by_artist.get(aid, ())
+        is_film = any(any(tok in tag for tok in _FILM_GENRE_TOKENS) for tag in tags)
+        if is_film:
+            film.append(t)
+        else:
+            indie.append(t)
+    return film, indie

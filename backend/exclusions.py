@@ -44,6 +44,86 @@ from typing import Callable, Iterable, Optional
 from config import logger
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Explicit-content detection.
+# ─────────────────────────────────────────────────────────────────────────────
+# Phrases the user might type in the dislikes textbox that mean "filter out
+# tracks Spotify flags as explicit". Independent of the UI checkbox; both
+# routes set the same flag on the Exclusions object.
+_EXPLICIT_TRIGGERS = {
+    "explicit", "explicit content", "explicit songs", "explicit music",
+    "explicit lyrics", "swearing", "swear words", "swears", "profanity",
+    "profane", "bad words", "cursing", "curse words", "clean only",
+    "no profanity", "no swearing", "no cursing", "vulgar", "obscene",
+}
+
+
+def _contains_explicit_trigger(phrases: Iterable[str]) -> bool:
+    """True if any phrase looks like a request to filter explicit content."""
+    for p in phrases or ():
+        if not p:
+            continue
+        norm = " ".join(str(p).lower().split())
+        if norm in _EXPLICIT_TRIGGERS:
+            return True
+        # Substring fallback: catches "no explicit stuff" / "anything explicit"
+        for trig in _EXPLICIT_TRIGGERS:
+            if trig in norm:
+                return True
+    return False
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Vibe-keyword → Spotify audio-feature range map.
+#
+# Each entry says: "if the user excludes this vibe, drop tracks whose audio
+# features fall in this range." Ranges are tuned conservatively so we don't
+# over-filter — e.g. excluding "sad" drops only tracks with valence < 0.30
+# (clearly downbeat), not anything mildly mellow.
+#
+# `valence`  = musical positiveness (0=sad, 1=happy)
+# `energy`   = perceived intensity   (0=calm, 1=energetic)
+# A None bound = no constraint on that axis.
+# ─────────────────────────────────────────────────────────────────────────────
+_VIBE_RANGES = {
+    # Vibe word → drop tracks where features satisfy these (val_lo, val_hi, en_lo, en_hi)
+    "sad":         (None, 0.30, None, None),
+    "depressing":  (None, 0.30, None, None),
+    "melancholy":  (None, 0.30, None, None),
+    "melancholic": (None, 0.30, None, None),
+    "gloomy":      (None, 0.30, None, None),
+    "happy":       (0.70, None, None, None),
+    "upbeat":      (0.65, None, 0.55, None),
+    "cheerful":    (0.70, None, None, None),
+    "joyful":      (0.70, None, None, None),
+    "angry":       (None, 0.40, 0.75, None),
+    "aggressive":  (None, None, 0.80, None),
+    "intense":     (None, None, 0.80, None),
+    "calm":        (None, None, None, 0.30),
+    "chill":       (None, None, None, 0.35),
+    "mellow":      (None, None, None, 0.40),
+    "soft":        (None, None, None, 0.40),
+    "energetic":   (None, None, 0.75, None),
+    "hype":        (None, None, 0.80, None),
+}
+
+
+def _detect_vibe_filters(phrases: Iterable[str]) -> list[tuple[float, float, float, float]]:
+    """Return the set of audio-feature filter ranges triggered by user
+    phrases. Each range is (val_lo, val_hi, en_lo, en_hi) — a track is
+    DROPPED if it satisfies any range (i.e. its features fall inside it)."""
+    triggered: list[tuple] = []
+    for p in phrases or ():
+        if not p:
+            continue
+        norm = " ".join(str(p).lower().split())
+        # Word-bounded match: "sad" but not inside "salad"
+        for vibe, rng in _VIBE_RANGES.items():
+            if re.search(rf"(?<![a-z]){re.escape(vibe)}(?![a-z])", norm):
+                triggered.append(rng)
+    return triggered
+
+
 # Filler words to drop when reducing a user phrase to its keyword atom.
 # Intentionally tiny — anything not in this list is treated as meaningful.
 # Includes negation/connector words too so that "no country music" or
@@ -158,7 +238,7 @@ class Exclusions:
     IS the source of truth.
     """
 
-    __slots__ = ("keywords", "_keywords_squished", "_kw_res")
+    __slots__ = ("keywords", "_keywords_squished", "_kw_res", "explicit", "vibe_filters")
 
     def __init__(self, keywords: Iterable[str]):
         cleaned: set = set()
@@ -184,8 +264,16 @@ class Exclusions:
             for k in self.keywords
         ]
 
+        # Derived flags — set by build_exclusions from the SAME phrase set
+        # before construction. We expose plain attributes (not properties)
+        # because build_exclusions populates them post-init.
+        self.explicit:     bool   = False
+        self.vibe_filters: list   = []
+
     def __bool__(self) -> bool:
-        return bool(self.keywords)
+        # Any of the three signals — keyword, explicit-flag, vibe-filter —
+        # makes this exclusion set "active" enough to be worth applying.
+        return bool(self.keywords) or self.explicit or bool(self.vibe_filters)
 
     def text_matches(self, *fields: str) -> bool:
         """True if any keyword appears (word-bounded) in the supplied fields."""
@@ -228,14 +316,22 @@ class Exclusions:
 
 
 def build_exclusions(disliked_genres: Optional[Iterable[str]],
-                     mood_text: str) -> tuple[Exclusions, str]:
+                     mood_text: str,
+                     explicit_filter: bool = False) -> tuple[Exclusions, str]:
     """
-    Build an Exclusions set from two strictness levels:
+    Build an Exclusions set from two strictness levels plus an out-of-band
+    explicit flag from the UI checkbox:
 
       1. `disliked_genres` (explicit textbox / quiz step) — STRICT. Every
          phrase is honoured verbatim as a keyword.
       2. `mood_text` — LOOSE. Only phrases lifted by `parse_dislikes_from_text`
          from clear "I hate X" / "no X" / "anything but X" phrasings.
+      3. `explicit_filter` (UI checkbox) — forces the explicit drop on
+         regardless of typed phrases.
+
+    Also auto-detects explicit triggers and vibe words inside the typed
+    phrases so users who write "no swearing" or "nothing sad" don't need
+    to know about the dedicated controls.
 
     Returns (Exclusions, cleaned_mood_text).
     """
@@ -249,8 +345,15 @@ def build_exclusions(disliked_genres: Optional[Iterable[str]],
     keywords.extend(text_phrases)
 
     excl = Exclusions(keywords)
-    if excl:
+    excl.explicit     = bool(explicit_filter) or _contains_explicit_trigger(keywords)
+    excl.vibe_filters = _detect_vibe_filters(keywords)
+
+    if excl.keywords:
         logger.info(f"[DISLIKE] active keywords={sorted(excl.keywords)}")
+    if excl.explicit:
+        logger.info("[DISLIKE] explicit-content filter active")
+    if excl.vibe_filters:
+        logger.info(f"[DISLIKE] vibe filters active count={len(excl.vibe_filters)}")
     return excl, cleaned
 
 
@@ -264,6 +367,9 @@ def make_track_filter(excl: Optional[Exclusions]) -> Callable[[dict], bool]:
         return lambda _t: True
 
     def keep(track: dict) -> bool:
+        # Explicit drop first — cheapest check, no string scan.
+        if excl.explicit and bool(track.get("explicit")):
+            return False
         title  = track.get("title") or track.get("name") or ""
         artist = track.get("artist") or ""
         if not artist and track.get("artists"):
@@ -280,3 +386,26 @@ def make_track_filter(excl: Optional[Exclusions]) -> Callable[[dict], bool]:
         return not excl.text_matches(title, artist, album)
 
     return keep
+
+
+def feature_in_drop_range(features: dict, ranges: list) -> bool:
+    """True if a track's audio-features dict falls inside ANY of the supplied
+    drop-ranges. Used by spotify._filter_by_audio_features after a batched
+    `/v1/audio-features` lookup. Each range is (val_lo, val_hi, en_lo, en_hi);
+    None bounds are unconstrained on that axis.
+    """
+    if not features or not ranges:
+        return False
+    val = features.get("valence")
+    en  = features.get("energy")
+    if val is None and en is None:
+        return False
+    for (val_lo, val_hi, en_lo, en_hi) in ranges:
+        ok = True
+        if val_lo is not None and (val is None or val < val_lo): ok = False
+        if val_hi is not None and (val is None or val > val_hi): ok = False
+        if en_lo  is not None and (en  is None or en  < en_lo):  ok = False
+        if en_hi  is not None and (en  is None or en  > en_hi):  ok = False
+        if ok:
+            return True
+    return False

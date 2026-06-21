@@ -42,6 +42,15 @@ class PlaylistRequest(BaseModel):
     # for logging / parity with the frontend's seeded palette.
     coverImageBase64:     Optional[str] = None
     coverSeed:            Optional[int] = None
+    # Movie-star / hero chips entered by the user. For Indian film flows we
+    # search "<actor> songs / hits / top tracks" and seed the playlist with
+    # the actor's movie soundtracks. Up to 5 actors.
+    selectedActors:       Optional[list[str]] = None
+    # Hard filter: drop any track Spotify flags as `explicit`. Surfaced as a
+    # checkbox in the generator UI ("Hide explicit songs"). Independent of
+    # the dislikes textbox so "I want explicit Punjabi rap" and "no swearing"
+    # can coexist without parsing ambiguity.
+    excludeExplicit:      bool = False
 
 
 class SuggestionsRequest(BaseModel):

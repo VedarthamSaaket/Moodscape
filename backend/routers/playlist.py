@@ -13,8 +13,11 @@ from mood_engine import (
 )
 from spotify import (
     normalise_track, search_tracks_by_query, search_movie_album,
-    get_recommendations, get_app_token, search_artist, get_artist_top_tracks,
+    get_recommendations, get_recommendations_for_bucket, get_app_token,
+    search_artist, get_artist_top_tracks, search_actor_songs,
+    classify_film_vs_indie, filter_tracks_by_vibe,
 )
+from mood_engine import parse_language
 from curator import (
     create_curator_playlist, add_tracks_curator, remove_tracks_curator,
     upload_cover_curator,
@@ -25,6 +28,62 @@ from models import (
 from exclusions import build_exclusions
 
 router = APIRouter()
+
+
+def _lang_display_for(canonical_key: str, selected_langs: list) -> str:
+    """Pick the matching display-form language name from `selected_langs`
+    for a canonical lower-case key (e.g. "telugu" → "Telugu"). Falls back
+    to title-casing the key if not found in the list."""
+    from config import LANGUAGE_ALIASES
+    for l in selected_langs:
+        if LANGUAGE_ALIASES.get(l.lower(), l.lower()) == canonical_key:
+            return l
+    return canonical_key.title()
+
+
+def _fetch_indian_film_indie_mix(
+    token, mood_text, mood_profile, lang_cfg, indian_lang,
+    selected_genres, lang_list, bucket_count, dedup, exclusions,
+    ratio_film: float = 0.55,
+):
+    """Return ~ratio_film film-tagged tracks + (1-ratio_film) indie tracks
+    for one Indian-language bucket. Over-fetches the pool, splits via
+    Spotify artist genre tags (filmi/bollywood/tollywood/etc), and trims to
+    `bucket_count`. Soft target — if one side of the split is thin, pad with
+    the other rather than leaving holes (user explicitly asked for soft)."""
+    target_film  = int(round(bucket_count * ratio_film))
+    target_indie = bucket_count - target_film
+
+    # Over-fetch ~2x bucket so the post-classification split has enough on
+    # each side to actually hit the ratio.
+    over_fetch = bucket_count * 2
+    pool = get_recommendations_for_bucket(
+        token, mood_profile, lang_cfg, indian_lang,
+        selected_genres, lang_list, over_fetch, dedup,
+        exclusions=exclusions,
+    )
+
+    film, indie = classify_film_vs_indie(pool, token)
+    logger.info(
+        f"[INDIAN_MIX] lang={lang_list[0]} bucket={bucket_count} "
+        f"film_pool={len(film)} indie_pool={len(indie)} "
+        f"target_film={target_film} target_indie={target_indie}"
+    )
+
+    out: list = []
+    out.extend(film[:target_film])
+    out.extend(indie[:target_indie])
+    # Soft fill: if one bucket fell short, pad from the other.
+    if len(out) < bucket_count:
+        deficit = bucket_count - len(out)
+        leftover_film  = film[target_film:]
+        leftover_indie = indie[target_indie:]
+        # Prefer indie filler when the film side ran short, and vice-versa.
+        if len(film) < target_film:
+            out.extend(leftover_indie[:deficit])
+        else:
+            out.extend(leftover_film[:deficit])
+    return out[:bucket_count]
 
 
 @router.post("/api/create-playlist")
@@ -88,16 +147,33 @@ def create_playlist(data: PlaylistRequest, request: Request):
         for g in (data.dislikedGenres or [])
         if isinstance(g, str) and g.strip()
     ]
-    exclusions, mood_text = build_exclusions(disliked_raw, mood_text)
-    if exclusions:
+    exclusions, mood_text = build_exclusions(
+        disliked_raw, mood_text,
+        explicit_filter=bool(getattr(data, "excludeExplicit", False)),
+    )
+    if exclusions and exclusions.keywords:
         logger.info(f"[DISLIKE] suppressing genres={sorted(exclusions.keywords)}")
 
     selected_movies = data.selectedMovies or ([data.movieName] if data.movieName else [])
     split_movies    = []
     for m in selected_movies:
+        # Each chip arrives as a single string but legacy commas-in-textbox
+        # users may still feed comma/"and" lists — split + sanitise either way.
+        if not isinstance(m, str):
+            continue
         parts = re.split(r',|\band\b', m, flags=re.IGNORECASE)
         split_movies.extend([sanitise_movie(p.strip()) for p in parts if p.strip()])
-    selected_movies = split_movies
+    selected_movies = [m for m in split_movies if m][:5]
+
+    # Movie-star chips entered in the new actor field. Same hygiene as movies.
+    selected_actors: list = []
+    for a in (data.selectedActors or []):
+        if not isinstance(a, str):
+            continue
+        cleaned = sanitise_user_text(a.strip(), "actor", max_len=60)
+        if cleaned:
+            selected_actors.append(cleaned)
+    selected_actors = selected_actors[:5]
 
     mood_profile = parse_mood_profile(mood_text, intent)
     logger.info(
@@ -108,7 +184,9 @@ def create_playlist(data: PlaylistRequest, request: Request):
     track_count = resolve_track_count(range_key)
 
     logger.info(
-        f"[REQ] count={track_count} langs={selected_langs} genres={selected_genres} movies={selected_movies}"
+        f"[REQ] count={track_count} langs={selected_langs} genres={selected_genres} "
+        f"movies={selected_movies} actors={selected_actors} "
+        f"industry={data.filmIndustry} excludeExplicit={bool(getattr(data, 'excludeExplicit', False))}"
     )
 
     try:
@@ -116,41 +194,119 @@ def create_playlist(data: PlaylistRequest, request: Request):
         all_tracks = []
         track_uris = []
 
-        if selected_movies:
-            for mv in selected_movies:
-                indian_lang = detect_indian_language(mood_text, data.filmIndustry, selected_langs)
-                raw = search_movie_album(access_token, mv, indian_lang or "hindi")
-                for t in raw:
+        # ─── Movie-album anchors ─────────────────────────────────────────
+        # When the user lists movies, seed the playlist with each movie's
+        # soundtrack tracks. Lives on top of the 55/45 split below; counted
+        # toward the film bucket.
+        for mv in selected_movies:
+            indian_lang = detect_indian_language(mood_text, data.filmIndustry, selected_langs)
+            raw = search_movie_album(access_token, mv, indian_lang or "hindi")
+            for t in raw:
+                uri    = t.get("uri", "")
+                artist = t.get("artist", "")
+                if uri and dedup2.is_allowed(uri, artist):
+                    # Honour explicit + dislike filters even on movie-album
+                    # anchors so a "no explicit" toggle is truly global.
+                    if exclusions and exclusions.explicit and t.get("explicit"):
+                        continue
+                    dedup2.register(uri, artist)
+                    track_uris.append(uri)
+                    all_tracks.append({k: v for k, v in t.items() if k != "uri"})
+
+        # ─── Movie-star (actor) anchors ──────────────────────────────────
+        # Spotify has no per-actor index, so we probe by name with a few query
+        # shapes (compilations, top tracks). Strong for famous heroes, weaker
+        # for character actors. Counted toward the film bucket.
+        if selected_actors:
+            actor_market = "IN"  # actors are almost always relevant in the IN market
+            per_actor = max(3, min(8, track_count // max(1, len(selected_actors) * 2)))
+            for actor in selected_actors:
+                hits = search_actor_songs(access_token, actor, actor_market, limit=per_actor * 3)
+                added_for_actor = 0
+                for t in hits:
                     uri    = t.get("uri", "")
                     artist = t.get("artist", "")
-                    if uri and dedup2.is_allowed(uri, artist):
-                        dedup2.register(uri, artist)
-                        track_uris.append(uri)
-                        all_tracks.append({k: v for k, v in t.items() if k != "uri"})
+                    if not uri or not dedup2.is_allowed(uri, artist):
+                        continue
+                    if exclusions and exclusions.explicit and t.get("explicit"):
+                        continue
+                    dedup2.register(uri, artist)
+                    track_uris.append(uri)
+                    all_tracks.append({k: v for k, v in t.items() if k != "uri"})
+                    added_for_actor += 1
+                    if added_for_actor >= per_actor:
+                        break
 
-            fill_count = max(0, track_count - len(all_tracks))
-            if fill_count > 0:
-                fill = get_recommendations(
-                    access_token, mood_text, mood_profile, fill_count,
-                    selected_langs, selected_genres, data.filmIndustry,
-                    None, dedup2, exclusions=exclusions,
-                )
-                for t in fill:
+        # ─── Main recommendation fill ────────────────────────────────────
+        # When the user picked a film industry, weight the playlist toward that
+        # industry's language (~60% if multi-lang selected, 100% if only that
+        # industry's language is in the language list). Else fall back to the
+        # standard multi-language even split.
+        fill_count = max(0, track_count - len(all_tracks))
+        if fill_count > 0:
+            industry_lang_key = (data.filmIndustry or "").strip().lower()
+            from config import FILM_INDUSTRY_MAP, INDIAN_LANGUAGES, LANGUAGE_ALIASES
+            industry_lang = FILM_INDUSTRY_MAP.get(industry_lang_key)
+
+            # Normalise selected langs to keys we recognise.
+            lang_keys = [LANGUAGE_ALIASES.get(l.lower(), l.lower()) for l in selected_langs]
+            indian_selected_keys = [k for k in lang_keys if k in INDIAN_LANGUAGES]
+            multi_indian = len(indian_selected_keys) > 1
+
+            buckets: list[tuple[str, int]] = []  # (lang_name_for_recs, bucket_count)
+
+            if industry_lang and multi_indian:
+                # Dominant 60% to the industry's language; remaining 40% split
+                # across the other Indian (and any non-Indian) selected langs.
+                dominant_count = max(1, int(round(fill_count * 0.60)))
+                others = [l for l in selected_langs if LANGUAGE_ALIASES.get(l.lower(), l.lower()) != industry_lang]
+                rest = fill_count - dominant_count
+                buckets.append((_lang_display_for(industry_lang, selected_langs), dominant_count))
+                if others and rest > 0:
+                    each = max(1, rest // len(others))
+                    for i, l in enumerate(others):
+                        c = each if i < len(others) - 1 else (rest - each * (len(others) - 1))
+                        if c > 0:
+                            buckets.append((l, c))
+            elif industry_lang:
+                # Only the industry's language matters (single-lang or only
+                # that lang in the selected list).
+                buckets.append((_lang_display_for(industry_lang, selected_langs), fill_count))
+            else:
+                # No industry picked — fall back to existing multi-lang split.
+                n = max(1, len(selected_langs))
+                per = fill_count // n
+                rem = fill_count % n
+                for i, l in enumerate(selected_langs):
+                    buckets.append((l, per + (1 if i < rem else 0)))
+
+            for lang_name, bucket_count in buckets:
+                if bucket_count <= 0:
+                    continue
+                lang_cfg    = parse_language(lang_name)
+                indian_lang = detect_indian_language("", data.filmIndustry, [lang_name])
+                this_lang_key = LANGUAGE_ALIASES.get(lang_name.lower(), lang_name.lower())
+                is_indian_bucket = this_lang_key in INDIAN_LANGUAGES
+
+                # Indian buckets get the 55/45 film-vs-indie split. Non-Indian
+                # buckets get the standard recommendation flow.
+                if is_indian_bucket:
+                    fetched = _fetch_indian_film_indie_mix(
+                        access_token, mood_text, mood_profile, lang_cfg,
+                        indian_lang, selected_genres, [lang_name], bucket_count,
+                        dedup2, exclusions, ratio_film=0.55,
+                    )
+                else:
+                    fetched = get_recommendations_for_bucket(
+                        access_token, mood_profile, lang_cfg, indian_lang,
+                        selected_genres, [lang_name], bucket_count, dedup2,
+                        exclusions=exclusions,
+                    )
+                for t in fetched:
                     uri = t.pop("uri", "")
                     if uri:
                         track_uris.append(uri)
                         all_tracks.append(t)
-        else:
-            tracks = get_recommendations(
-                access_token, mood_text, mood_profile, track_count,
-                selected_langs, selected_genres, data.filmIndustry,
-                None, DeduplicationState(), exclusions=exclusions,
-            )
-            for t in tracks:
-                uri = t.pop("uri", "")
-                if uri:
-                    track_uris.append(uri)
-                    all_tracks.append(t)
 
         # ── Pinned songs from the post-quiz suggestions ──────────────────────
         # Added FIRST and verbatim, regardless of the mood/genre/language menu.
