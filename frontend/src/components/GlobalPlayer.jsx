@@ -62,8 +62,10 @@ function TrackArt({ seed = '' }) {
       <rect width="48" height="48" fill="rgba(0,0,0,0.18)" />
       <circle cx="24" cy="24" r="11" fill="none" stroke="rgba(220,235,255,0.5)" strokeWidth="0.7" />
       <circle cx="24" cy="24" r="6"  fill="none" stroke="rgba(220,235,255,0.38)" strokeWidth="0.6" />
+      {/* U+FE0E (text variation selector) forces single-colour text rendering;
+          without it iOS substitutes ♪ ♫ ✦ etc. with its colour-emoji font. */}
       <text x="24" y="25.5" textAnchor="middle" dominantBaseline="middle"
-        fontFamily="Georgia, serif" fontSize="14" fill="rgba(235,244,255,0.92)">{glyph}</text>
+        fontFamily="Georgia, serif" fontSize="14" fill="rgba(235,244,255,0.92)">{glyph + '︎'}</text>
     </svg>
   );
 }
@@ -354,18 +356,18 @@ export default function GlobalPlayer() {
           </div>
 
           <div className="gp-controls">
-            <button className="gp-ctrl" onClick={prev} title="Previous" aria-label="Previous">⏮</button>
-            <button className="gp-ctrl gp-ctrl--play" onClick={togglePlay}
+            <button className="gp-ctrl gp-glyph" onClick={prev} title="Previous" aria-label="Previous">{'⏮︎'}</button>
+            <button className="gp-ctrl gp-ctrl--play gp-glyph" onClick={togglePlay}
               title={isPlaying ? 'Pause' : 'Play'} aria-label={isPlaying ? 'Pause' : 'Play'}>
-              {isPlaying ? '⏸' : '▶'}
+              {isPlaying ? '⏸︎' : '▶︎'}
             </button>
-            <button className="gp-ctrl" onClick={next} title="Next" aria-label="Next">⏭</button>
+            <button className="gp-ctrl gp-glyph" onClick={next} title="Next" aria-label="Next">{'⏭︎'}</button>
           </div>
 
           <div className="gp-right">
-            <button className="gp-mini" onClick={stopPlayback} title="Stop" aria-label="Stop playback">⏹ stop</button>
-            <button className="gp-mini gp-close" onClick={() => setMinimized(true)}
-              title="Minimize" aria-label="Minimize player">✕</button>
+            <button className="gp-mini gp-glyph" onClick={stopPlayback} title="Stop" aria-label="Stop playback">{'⏹︎'} stop</button>
+            <button className="gp-mini gp-close gp-glyph" onClick={() => setMinimized(true)}
+              title="Minimize" aria-label="Minimize player">{'✕'}</button>
           </div>
 
           <div className="gp-progress">
@@ -393,8 +395,8 @@ export default function GlobalPlayer() {
           <span className="gp-pill-art"><TrackArt seed={(current.title || '') + '·' + (current.artist || '')} /></span>
           <span className="gp-pill-text">
             <span className="gp-pill-title">{current.title}</span>
-            <span className="gp-pill-tag" aria-label={isPlaying ? 'playing' : 'paused'}>
-              <span aria-hidden="true">{isPlaying ? '▶' : '⏸'} · ⤢</span>
+            <span className="gp-pill-tag gp-glyph" aria-label={isPlaying ? 'playing' : 'paused'}>
+              <span aria-hidden="true">{(isPlaying ? '▶︎' : '⏸︎') + ' · ⤢︎'}</span>
             </span>
           </span>
         </button>

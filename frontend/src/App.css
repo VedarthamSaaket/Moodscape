@@ -5,6 +5,23 @@
    Fonts    : Cormorant Garamond · DM Sans · Space Mono
    ============================================================ */
 
+/* iOS Safari substitutes any character that has a colour emoji presentation
+   (♪ ♫ ♥ ♡ ☽ ☯ ▶ ★ ⭐ etc.) with Apple Color Emoji whenever an emoji font
+   is anywhere in the page's font-family chain — even if the immediate
+   element's stack doesn't list one. The result is that decorative single-
+   colour glyphs land as full-colour iOS emoji on iPhone, which we never want
+   in this design. `font-variant-emoji: text` (Safari 17+) plus a default
+   font stack containing real symbol fonts but NO emoji font keeps them
+   rendered as monochrome text glyphs everywhere they appear. */
+html {
+  font-variant-emoji: text;
+}
+body {
+  font-family: var(--font-body, 'DM Sans', system-ui, sans-serif),
+               'Segoe UI Symbol', 'Apple Symbols', 'Noto Sans Symbols 2';
+  font-variant-emoji: text;
+}
+
 @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;0,700;1,300;1,400;1,600&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,300&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap');
 
 @font-face {

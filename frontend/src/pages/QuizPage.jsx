@@ -595,10 +595,10 @@ function ResultView({ archetype, runnerUp, scores, confidence, margin, displayCo
                       onClick={() => playList(suggestions, i)}
                       title="Play (and queue the rest)"
                       aria-label={`Play ${t.title}`}
-                    >▶</button>
+                    >▶︎</button>
                     {t.albumArt
                       ? <img className="quiz-song-art" src={t.albumArt} alt="" />
-                      : <span className="quiz-song-art quiz-song-art--empty">♪</span>}
+                      : <span className="quiz-song-art quiz-song-art--empty">♪︎</span>}
                     <span className="quiz-song-info">
                       <span className="quiz-song-title" title={t.title}>{t.title}</span>
                       <span className="quiz-song-artist" title={t.artist}>{t.artist}</span>
@@ -611,7 +611,7 @@ function ResultView({ archetype, runnerUp, scores, confidence, margin, displayCo
                       title={isSaved ? 'Saved — tap to remove' : 'Save for later'}
                       aria-label={isSaved ? 'Remove from saved' : 'Save song'}
                     >
-                      {isSaved ? '♥' : '♡'}
+                      {isSaved ? '♥︎' : '♡︎'}
                     </button>
                     <button
                       className={`quiz-song-pick ${isSel ? 'is-on' : ''}`}
@@ -643,14 +643,14 @@ function ResultView({ archetype, runnerUp, scores, confidence, margin, displayCo
                     title={unsavedCount === 0 ? 'All recommended songs are already saved' : `Save the ${unsavedCount} unsaved recommendation${unsavedCount > 1 ? 's' : ''}`}
                   >
                     {unsavedCount === 0
-                      ? '♥ all saved'
-                      : `♥ save all (${unsavedCount})`}
+                      ? '♥︎ all saved'
+                      : `♥︎ save all (${unsavedCount})`}
                   </button>
                 </div>
               );
             })()}
             <p className="quiz-suggest-hint">
-              ▶ plays in-app (queues the rest) · ♥ saves to your Saved tab · + add rides into your next playlist
+              ▶︎ plays in-app (queues the rest) · ♥︎ saves to your Saved tab · + add rides into your next playlist
             </p>
           </>
         )}

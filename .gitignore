@@ -11,13 +11,19 @@ backend/.env
 # Node 
 frontend/node_modules/ 
 frontend/dist/ 
-# Custom 
-demo.py 
-frontend/*.txt 
-backend/test_*.py 
+# Custom
+demo.py
+frontend/*.txt
+backend/test_*.py
+# Stickers: the original full-res packs use unicode/space folder names
+# ("pack 1/.𝐁𝐎𝐍𝐔𝐒/…", ~2GB) and are NOT deployed. Only the pruned+downscaled
+# ASCII packs (public/stickers/pack-N/) are committed + served. Ignore the
+# space-named originals and pipeline scratch, keep pack-N/.
+frontend/public/stickers/pack [0-9]*/
+frontend/public/stickers/_stickers_tmp/
+frontend/src/sticker-manifest.OLD.json
 .env
 .env.local
 $null
 frontend/.env
 **/.env
-frontend/public/stickers/

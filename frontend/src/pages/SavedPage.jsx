@@ -51,7 +51,7 @@ export default function SavedPage() {
           </div>
           {saved.length > 0 && (
             <div className="saved-actions">
-              <button className="saved-btn" onClick={() => playList(saved, 0)}>▶ Play all</button>
+              <button className="saved-btn" onClick={() => playList(saved, 0)}>▶︎ Play all</button>
               <button className="saved-btn saved-btn--ghost" onClick={clearSaved}>Clear all</button>
             </div>
           )}
@@ -62,7 +62,7 @@ export default function SavedPage() {
           // indistinguishable from a genuinely empty library. Songs are safe
           // on the server; we just couldn't reach it.
           <div className="saved-empty">
-            <span className="saved-empty-glyph">⟳</span>
+            <span className="saved-empty-glyph">⟳︎</span>
             <p className="saved-empty-line">Couldn’t sync your saved songs.</p>
             <p className="saved-empty-hint">They’re safe on the server — retrying automatically.</p>
             <button className="saved-btn" style={{ marginTop: 12 }} onClick={() => hydrate(true)}>
@@ -72,14 +72,14 @@ export default function SavedPage() {
         ) : saved.length === 0 && (hydrating || !hydrated) ? (
           // First pull in flight (or not yet attempted) — show loading, not empty.
           <div className="saved-empty">
-            <span className="saved-empty-glyph">♪</span>
+            <span className="saved-empty-glyph">♪︎</span>
             <p className="saved-empty-line">Loading your saved songs…</p>
           </div>
         ) : saved.length === 0 ? (
           <div className="saved-empty">
-            <span className="saved-empty-glyph">♡</span>
+            <span className="saved-empty-glyph">♡︎</span>
             <p className="saved-empty-line">No saved songs yet.</p>
-            <p className="saved-empty-hint">Take the Quiz and tap ♥ on any suggestion to keep it here.</p>
+            <p className="saved-empty-hint">Take the Quiz and tap ♥︎ on any suggestion to keep it here.</p>
           </div>
         ) : (
           <ul className="saved-list">
@@ -90,16 +90,16 @@ export default function SavedPage() {
                   onClick={() => playList(saved, i)}
                   title="Play (and queue the rest)"
                   aria-label={`Play ${t.title}`}
-                >▶</button>
+                >▶︎</button>
                 {t.albumArt
                   ? <img className="saved-art" src={t.albumArt} alt="" />
-                  : <span className="saved-art saved-art--empty">♪</span>}
+                  : <span className="saved-art saved-art--empty">♪︎</span>}
                 <span className="saved-info">
                   <span className="saved-song-title" title={t.title}>{t.title}</span>
                   <span className="saved-song-artist" title={t.artist}>{t.artist}</span>
                 </span>
                 {t.spotifyUrl && (
-                  <a className="saved-ext" href={t.spotifyUrl} target="_blank" rel="noreferrer" title="Open in Spotify">↗</a>
+                  <a className="saved-ext" href={t.spotifyUrl} target="_blank" rel="noreferrer" title="Open in Spotify">↗︎</a>
                 )}
                 <button
                   className="saved-remove"

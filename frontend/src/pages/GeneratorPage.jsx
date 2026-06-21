@@ -116,8 +116,12 @@ function generateCoverSVG(seed = 0) {
   <rect width="300" height="300" fill="rgba(0,0,0,0.20)"/>
   <circle cx="150" cy="150" r="38" fill="none" stroke="${palette.stops[2]}" stroke-width="0.6" opacity="0.28"/>
   <circle cx="150" cy="150" r="22" fill="none" stroke="${palette.stops[3]}" stroke-width="0.4" opacity="0.20"/>
-  <text x="150" y="155" text-anchor="middle" dominant-baseline="middle"
-    font-family="Georgia,serif" font-size="18" fill="${palette.stops[3]}" opacity="0.50" letter-spacing="6">✦</text>
+  <!-- Vector four-point star instead of a ✦ glyph. iOS rasterises emoji-presentable
+       chars to colour emoji even via canvas.drawImage(SVG), which made the upload
+       JPEG land with a colour-emoji star on Spotify covers. Paths bypass the font
+       stack entirely. -->
+  <path d="M150 142 L153 150 L161 152 L153 154 L150 162 L147 154 L139 152 L147 150 Z"
+        fill="${palette.stops[3]}" opacity="0.50"/>
 </svg>`;
 }
 
@@ -370,9 +374,26 @@ export default function GeneratorPage() {
   const [playlistUrl, setPlaylistUrl] = useState(null);
   const [playlistId, setPlaylistId] = useState(null);
   const [playlistNameResult, setPlaylistNameResult] = useState('');
-  const [isConnected] = useState(!!localStorage.getItem('spotify_token'));
+  // Reactive so the UI flips to "connected" the moment the Spotify token lands
+  // in localStorage (e.g. returning from /callback), without needing a reload.
+  const [isConnected, setIsConnected] = useState(!!localStorage.getItem('spotify_token'));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+
+  // If we bounced back from a failed Spotify link (?spotify=failed), surface a
+  // gentle message instead of silently showing the connect button again — and
+  // re-check the token in case it did land. Also re-reads the token on focus so
+  // a tab that finished OAuth in another window updates here too.
+  useEffect(() => {
+    const sync = () => setIsConnected(!!localStorage.getItem('spotify_token'));
+    sync();
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('spotify') === 'failed') {
+      setError('Spotify connection didn’t complete. Please try connecting again.');
+    }
+    window.addEventListener('focus', sync);
+    return () => window.removeEventListener('focus', sync);
+  }, []);
 
   const token = localStorage.getItem('spotify_token');
   const sessionToken = localStorage.getItem('authToken');
@@ -389,8 +410,10 @@ export default function GeneratorPage() {
 
   const handleSpotifyConnect = async () => {
     try {
+      setError(null);
       const res = await fetch(`${API_BASE}/api/login/spotify`);
       const data = await res.json();
+      if (!data.authorization_url) throw new Error('no url');
       window.location.href = data.authorization_url;
     } catch {
       setError('Could not connect to Spotify.');
@@ -605,7 +628,7 @@ export default function GeneratorPage() {
                   onClick={() => playNow(t)}
                   title={`Play ${t.title}, ${t.artist}`}
                 >
-                  ▶ {t.title}
+                  ▶︎ {t.title}
                 </button>
               ))}
             </div>
@@ -822,7 +845,7 @@ export default function GeneratorPage() {
                     title="Play in app"
                     aria-label={`Play ${title}`}
                   >
-                    ▶
+                    ▶︎
                   </button>
                   <button
                     type="button"

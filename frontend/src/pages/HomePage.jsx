@@ -42,6 +42,66 @@ const GLOBAL_CSS = `
   @keyframes pulseSilver { 0%,100% { opacity:0.35; } 50% { opacity:0.85; } }
   @keyframes rotateCW  { from { transform: rotate(0deg);   } to { transform: rotate(360deg);  } }
   @keyframes heroIn    { from { opacity:0; transform: translateY(36px); } to { opacity:1; transform:translateY(0); } }
+  @keyframes home-rotate-tilt {
+    0%, 100% { transform: rotate(-8deg); }
+    50%      { transform: rotate(8deg); }
+  }
+
+  /* Mobile portrait rotate prompt — appears once the user scrolls past the
+     hero, because the rest of the landing page is built for at least tablet
+     width and looks broken stacked into a phone column. Same look as the
+     Studio rotate card; duplicated here so the landing page doesn't have to
+     import StudioPage.css. */
+  .home-rotate-prompt {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: rgba(2, 4, 11, 0.92);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    z-index: 9999;
+  }
+  .home-rotate-card {
+    max-width: 360px;
+    width: 100%;
+    padding: 32px 26px;
+    text-align: center;
+    background: rgba(10, 14, 24, 0.85);
+    border: 1px solid rgba(184, 198, 224, 0.18);
+    border-radius: 14px;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
+    color: var(--text, rgba(220, 234, 248, 0.95));
+  }
+  .home-rotate-icon {
+    color: rgba(184, 198, 224, 0.85);
+    margin-bottom: 18px;
+    animation: home-rotate-tilt 2.4s ease-in-out infinite;
+    display: inline-flex;
+  }
+  .home-rotate-title {
+    font-family: var(--font-display);
+    font-style: italic;
+    font-size: 1.6rem;
+    font-weight: 500;
+    margin: 0 0 10px;
+    color: var(--parch, #dce8f0);
+  }
+  .home-rotate-msg {
+    font-size: 0.92rem;
+    line-height: 1.55;
+    margin: 0 0 12px;
+    color: rgba(200, 218, 232, 0.88);
+  }
+  .home-rotate-msg strong { color: var(--rg-light, #c2d8e8); font-weight: 600; }
+  .home-rotate-hint {
+    font-size: 0.74rem;
+    line-height: 1.5;
+    color: rgba(168, 192, 210, 0.62);
+    margin: 0;
+  }
 
   .section-rule {
     width: 100%;
@@ -93,6 +153,41 @@ const GLOBAL_CSS = `
   .step-card:hover { transform: translateY(-8px) !important; }
   .feat-tile:hover  { transform: translateY(-5px) !important; background: rgba(154,184,204,0.022) !important; }
   .pl-card:hover    { transform: translateY(-10px) !important; box-shadow: 0 44px 80px rgba(0,0,0,0.68) !important; }
+
+  /* ── Mobile (≤768px) ── desktop inline styles stay the baseline; these override only what breaks */
+  @media (max-width: 768px) {
+    .lp-section { padding-left: 20px !important; padding-right: 20px !important; }
+    .lp-grid-3, .lp-grid-2 { grid-template-columns: 1fr !important; }
+    .lp-grid-gap { gap: 1px !important; }
+
+    /* nav bar */
+    .lp-nav { padding: 12px 18px !important; }
+    .lp-nav-tabs span { padding: 4px 8px !important; letter-spacing: 0.14em !important; }
+
+    /* hero */
+    .lp-hero-center { padding: 16px 18px 40px !important; }
+    .lp-subtitle-wrap { width: 92vw !important; }
+    .lp-subtitle { white-space: normal !important; font-size: 0.74rem !important; text-align: center; }
+    .lp-cta { flex-wrap: wrap; justify-content: center; }
+
+    /* stat strip → 2×2 */
+    .lp-stats { flex-wrap: wrap !important; }
+    .lp-stat { flex: 1 1 45% !important; border-left: none !important; border-top: 1px solid rgba(154,184,204,0.09) !important; }
+
+    /* decorative bits that overlap on narrow screens */
+    .lp-siderail { display: none !important; }
+    .lp-vinyl-hero { display: none !important; }
+
+    /* section headers that sit side-by-side → stack */
+    .lp-head-row { flex-direction: column !important; align-items: flex-start !important; gap: 18px !important; }
+
+    /* watermark ghost numbers shrink so they don't bleed off-screen */
+    .lp-ghost { font-size: clamp(5rem, 22vw, 7rem) !important; }
+
+    /* lead feature row stacks */
+    .lp-feat-lead { flex-direction: column !important; gap: 20px !important; }
+    .lp-feat-lead-vert { display: none !important; }
+  }
 `;
 
 function useReveal(threshold = 0.08) {
@@ -137,7 +232,7 @@ function Ticker({ rev = false }) {
       <div className={`marquee-track${rev ? ' rev' : ''}`}>
         {items.map((w, i) => (
           <span key={i} style={{ fontFamily: 'var(--font-mono)', fontSize: '0.50rem', letterSpacing: '0.30em', textTransform: 'uppercase', color: i % 3 === 1 ? 'rgba(194,217,232,0.55)' : 'rgba(154,184,204,0.20)', padding: '0 32px', whiteSpace: 'nowrap' }}>
-            {w}<span style={{ marginLeft: '32px', color: i % 3 === 1 ? 'rgba(194,217,232,0.22)' : 'rgba(154,184,204,0.09)' }}>{i % 3 === 1 ? '♩' : '/'}</span>
+            {w}<span style={{ marginLeft: '32px', color: i % 3 === 1 ? 'rgba(194,217,232,0.22)' : 'rgba(154,184,204,0.09)' }}>{i % 3 === 1 ? '♩︎' : '/'}</span>
           </span>
         ))}
       </div>
@@ -176,14 +271,31 @@ export default function HomePage() {
   const [beamsOp, setBeamsOp] = useState(0);
   const [hovStep, setHovStep] = useState(null);
   const [hovPl, setHovPl] = useState(null);
+  // True only when (mobile portrait) AND (scrolled past the hero). The
+  // hero section reads fine on a phone; the editorial layout below assumes
+  // tablet+ width, so we ask the user to rotate once they pass it.
+  const [showRotate, setShowRotate] = useState(false);
 
   useEffect(() => {
     const fn = () => {
       const y = window.scrollY, h = window.innerHeight, s = h * 0.5, e = h * 1.1;
       setBeamsOp(y <= s ? 0 : y >= e ? 1 : (y - s) / (e - s));
+
+      const isMobilePortrait = window.innerWidth <= 820 && window.innerHeight > window.innerWidth;
+      // Trigger once the user has scrolled out of the hero. innerHeight is a
+      // reasonable proxy for "past the fold" since the hero is min-height
+      // 100vh.
+      setShowRotate(isMobilePortrait && y > window.innerHeight * 0.6);
     };
-    window.addEventListener('scroll', fn, { passive: true });
-    return () => window.removeEventListener('scroll', fn);
+    fn();
+    window.addEventListener('scroll',  fn, { passive: true });
+    window.addEventListener('resize',  fn);
+    window.addEventListener('orientationchange', fn);
+    return () => {
+      window.removeEventListener('scroll', fn);
+      window.removeEventListener('resize', fn);
+      window.removeEventListener('orientationchange', fn);
+    };
   }, []);
 
   // Bold / dominant ghost numbers, silver only, high opacity
@@ -208,6 +320,28 @@ export default function HomePage() {
   return (
     <div style={{ width: '100vw', minHeight: '100vh', background: 'var(--black)', color: 'var(--text)', fontFamily: 'var(--font-editorial)', overflowX: 'hidden' }}>
       <style>{GLOBAL_CSS}</style>
+
+      {showRotate && (
+        <div className="home-rotate-prompt" role="dialog" aria-modal="true" aria-label="Please rotate your phone">
+          <div className="home-rotate-card">
+            <div className="home-rotate-icon" aria-hidden="true">
+              <svg viewBox="0 0 64 64" width="64" height="64" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="14" y="6" width="26" height="44" rx="4" />
+                <path d="M27 44h0" />
+                <path d="M46 24l8 8-8 8" />
+                <path d="M54 32H40" />
+              </svg>
+            </div>
+            <h2 className="home-rotate-title">Rotate your phone</h2>
+            <p className="home-rotate-msg">
+              The landing page reads best in <strong>landscape</strong> mode below the hero.
+            </p>
+            <p className="home-rotate-hint">
+              Turn your device sideways. For the full experience, a tablet or laptop is recommended.
+            </p>
+          </div>
+        </div>
+      )}
 
       <div style={{ position: 'fixed', inset: 0, zIndex: 0, opacity: beamsOp, transition: 'opacity 0.1s linear', pointerEvents: 'none' }}>
         <Beams beamWidth={2.5} beamHeight={35} beamNumber={18} lightColor="#8a9ea8" speed={1.8} noiseIntensity={1.6} scale={0.18} rotation={25} />
@@ -382,7 +516,9 @@ export default function HomePage() {
                     width: '46px', height: '46px', display: 'flex', alignItems: 'center', justifyContent: 'center',
                     border: '1px solid rgba(154,184,204,0.12)', fontSize: '1.1rem',
                     color: i % 3 === 0 ? 'rgba(194,217,232,0.55)' : i % 3 === 1 ? 'rgba(184,198,224,0.38)' : 'rgba(154,184,204,0.25)',
-                  }}>{g}</span>
+                    fontFamily: '"Segoe UI Symbol", "Apple Symbols", "Noto Sans Symbols", system-ui, sans-serif',
+                    fontVariantEmoji: 'text',
+                  }}>{g + '︎'}</span>
                 ))}
               </div>
             </div>

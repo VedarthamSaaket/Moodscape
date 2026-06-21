@@ -134,8 +134,26 @@
   font-weight: 600;
 }
 
+/* On narrow viewports the fixed left-rail post-it would overlap the main
+   content. Instead of hiding it (which is what we used to do — the user
+   never saw their score breakdown on phones), drop the fixed-position
+   anchoring and let it sit inline above the round card. Still pinned-looking
+   thanks to the tape strip; just lives in the flow rather than the rail. */
 @media (max-width: 980px) {
-  .sns-postit { display: none; }
+  .sns-postit {
+    position: static;
+    top: auto;
+    left: auto;
+    width: auto;
+    max-width: 340px;
+    margin: 0 auto 18px;
+    transform: none;
+  }
+  .sns-postit--summary {
+    top: auto;
+    width: auto;
+    max-width: 360px;
+  }
 }
 
 /* ── INTRO extra ──────────────────────────────────────────────────────────── */

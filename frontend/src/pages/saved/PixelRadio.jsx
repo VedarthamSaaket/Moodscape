@@ -181,47 +181,74 @@ function VuBars({ x, y, on }) {
 //   bottom — drifts down
 //   left   — drifts out to the left
 //   right  — drifts out to the right
+// Vector quarter-note glyph drawn with SVG paths instead of the ♪/♫/♬
+// Unicode characters. iOS substitutes those characters with its Apple Color
+// Emoji font when rendered inside <text>, so on iPhone they showed as full
+// colour emoji instead of the cool single-colour pixel notes the desktop
+// shows. Vector paths bypass the font stack entirely.
+function NoteSingle({ scale = 1, fill }) {
+  // Unit shape sized for a 6-unit drawing area; we transform-scale to taste.
+  return (
+    <g transform={`scale(${scale * 0.10})`}>
+      {/* note head (filled ellipse) */}
+      <ellipse cx="14" cy="40" rx="9" ry="6.5" fill={fill} transform="rotate(-22 14 40)" />
+      {/* stem */}
+      <rect x="20" y="6" width="3.2" height="34" fill={fill} />
+      {/* small flag */}
+      <path d="M23 6 C 32 12, 32 22, 23 26 Z" fill={fill} />
+    </g>
+  );
+}
+
+function NoteBeamed({ scale = 1, fill }) {
+  return (
+    <g transform={`scale(${scale * 0.10})`}>
+      {/* two heads */}
+      <ellipse cx="10" cy="42" rx="8" ry="5.8" fill={fill} transform="rotate(-22 10 42)" />
+      <ellipse cx="34" cy="44" rx="8" ry="5.8" fill={fill} transform="rotate(-22 34 44)" />
+      {/* two stems */}
+      <rect x="16" y="10" width="2.8" height="34" fill={fill} />
+      <rect x="40" y="12" width="2.8" height="34" fill={fill} />
+      {/* connecting beam */}
+      <path d="M16 10 L43 12 L43 18 L16 16 Z" fill={fill} />
+    </g>
+  );
+}
+
 function MusicNotes() {
-  // Sizes span a deliberately visible range (2.4 .. 5.6 SVG units) so the
-  // wash has a clear mix of bigger + smaller glyphs side by side. None of
-  // them are huge — the radio is small. None drift from the BOTTOM of the
-  // radio (the floor reads as where the feet sit, notes coming out of the
-  // ground looked unnatural). Only top / left / right.
-  // Notes ORIGINATE at (or slightly inside) the radio body and DRIFT out.
-  // Each gets one of three path variants (a/b/c) so the wash never repeats
-  // the same trajectory back-to-back — looks improvised, not metronomic.
-  // Body bounds: x:3-47, y:14-37. Top edge ≈ y:14; left ≈ x:3; right ≈ x:47.
   const notes = [
     // ── Top edge ─────────────────────────────────────────────
-    { ch: '♪', x: 13, y: 14, size: 3.2, side: 'up',    variant: 'a', delay: '0s'   },
-    { ch: '♫', x: 22, y: 15, size: 5.0, side: 'up',    variant: 'b', delay: '0.6s' },
-    { ch: '♬', x: 30, y: 14, size: 2.6, side: 'up',    variant: 'c', delay: '1.2s' },
-    { ch: '♩', x: 38, y: 15, size: 4.2, side: 'up',    variant: 'a', delay: '1.8s' },
+    { kind: 'single', x: 13, y: 14, scale: 0.32, side: 'up',    variant: 'a', delay: '0s'   },
+    { kind: 'beamed', x: 22, y: 15, scale: 0.50, side: 'up',    variant: 'b', delay: '0.6s' },
+    { kind: 'single', x: 30, y: 14, scale: 0.26, side: 'up',    variant: 'c', delay: '1.2s' },
+    { kind: 'single', x: 38, y: 15, scale: 0.42, side: 'up',    variant: 'a', delay: '1.8s' },
     // ── Right edge ───────────────────────────────────────────
-    { ch: '♪', x: 46, y: 19, size: 2.8, side: 'right', variant: 'b', delay: '0.3s' },
-    { ch: '♫', x: 45, y: 26, size: 5.6, side: 'right', variant: 'c', delay: '1.0s' },
-    { ch: '♬', x: 46, y: 33, size: 3.4, side: 'right', variant: 'a', delay: '1.7s' },
+    { kind: 'single', x: 46, y: 19, scale: 0.28, side: 'right', variant: 'b', delay: '0.3s' },
+    { kind: 'beamed', x: 45, y: 26, scale: 0.56, side: 'right', variant: 'c', delay: '1.0s' },
+    { kind: 'single', x: 46, y: 33, scale: 0.34, side: 'right', variant: 'a', delay: '1.7s' },
     // ── Left edge ────────────────────────────────────────────
-    { ch: '♩', x: 4,  y: 20, size: 4.4, side: 'left',  variant: 'c', delay: '0.5s' },
-    { ch: '♪', x: 5,  y: 27, size: 2.4, side: 'left',  variant: 'a', delay: '1.2s' },
-    { ch: '♫', x: 4,  y: 34, size: 4.8, side: 'left',  variant: 'b', delay: '2.0s' },
+    { kind: 'single', x: 4,  y: 20, scale: 0.44, side: 'left',  variant: 'c', delay: '0.5s' },
+    { kind: 'single', x: 5,  y: 27, scale: 0.24, side: 'left',  variant: 'a', delay: '1.2s' },
+    { kind: 'beamed', x: 4,  y: 34, scale: 0.48, side: 'left',  variant: 'b', delay: '2.0s' },
   ];
 
   return (
     <g className="pr-notes">
       {notes.map((n, i) => (
-        <text
-          key={i}
-          x={n.x}
-          y={n.y}
-          fill={C.note}
-          fontSize={n.size}
-          textAnchor="middle"
-          className={`pr-note pr-note--${n.side} pr-note--${n.side}-${n.variant}`}
-          style={{ animationDelay: n.delay }}
-        >
-          {n.ch}
-        </text>
+        // Outer <g> holds the static placement; inner <g> takes the CSS
+        // animation class. Splitting them is required because the animation
+        // sets its own `transform`, which would otherwise wipe out a static
+        // transform on the same element and collapse every note to (0,0).
+        <g key={i} transform={`translate(${n.x} ${n.y})`}>
+          <g
+            className={`pr-note pr-note--${n.side} pr-note--${n.side}-${n.variant}`}
+            style={{ animationDelay: n.delay }}
+          >
+            {n.kind === 'beamed'
+              ? <NoteBeamed scale={n.scale} fill={C.note} />
+              : <NoteSingle scale={n.scale} fill={C.note} />}
+          </g>
+        </g>
       ))}
     </g>
   );

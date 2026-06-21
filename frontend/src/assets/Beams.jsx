@@ -39,8 +39,17 @@ function extendMaterial(BaseMaterial, cfg) {
     return mat;
 }
 
+// Cap DPR at 1.5 so retina phones don't allocate an oversized framebuffer
+// (the cause of "THREE.WebGLRenderer: Context Lost" on mobile GPUs).
+const _dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 1.5) : 1;
+
 const CanvasWrapper = ({ children }) => (
-    <Canvas dpr={[1, 2]} frameloop="always" className="beams-container">
+    <Canvas
+        dpr={_dpr}
+        frameloop="always"
+        gl={{ antialias: false, powerPreference: 'low-power', failIfMajorPerformanceCaveat: false }}
+        className="beams-container"
+    >
         {children}
     </Canvas>
 );

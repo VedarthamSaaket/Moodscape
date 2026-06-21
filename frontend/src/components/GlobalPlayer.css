@@ -287,3 +287,14 @@
 /* Keep page content clear of the fixed bar while it's visible. */
 body.has-player .generator-content { padding-bottom: 100px; }
 body.has-player .quiz-shell { padding-bottom: 24px; }
+
+/* Force single-colour TEXT rendering of symbol glyphs (play/pause/skip/stop
+   etc.) instead of iOS colour-emoji substitution. The U+FE0E variation
+   selector in the JSX is the primary fix; this font stack + font-variant-emoji
+   is the belt-and-suspenders for engines that honour it. */
+.gp-glyph {
+  font-family: "Segoe UI Symbol", "Apple Symbols", "Noto Sans Symbols2",
+               "Noto Sans Symbols", system-ui, sans-serif;
+  font-variant-emoji: text;
+  -webkit-font-feature-settings: "liga" 0;
+}

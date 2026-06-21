@@ -117,6 +117,18 @@ function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 }
 
+// iOS substitutes emoji-presentable symbol chars (✿ ❦ ♡ ◉ ✦ ★ ☀ ☽ ☯ ⚜ ♫ …)
+// with its colour-emoji font, which is exactly what we DON'T want — these are
+// meant to read as the cool single-colour glyphs the desktop shows. Appending
+// U+FE0E (text variation selector) after a single-codepoint glyph forces text
+// presentation. Multi-char strings (kaomoji, ═══ borders) are returned as-is.
+const VS_TEXT = '︎';
+function glyphText(ch) {
+  if (typeof ch !== 'string') return ch;
+  // [...ch] counts codepoints, not UTF-16 units, so astral glyphs count as 1.
+  return [...ch].length === 1 ? ch + VS_TEXT : ch;
+}
+
 /* ─── Shape Canvas ──────────────────────────────────────────────────── */
 function ShapeCanvas({ type, seed, width, height }) {
   const ref = useRef(null);
@@ -1201,7 +1213,9 @@ function ArtPanel({ currentStyle, addCard, zRef, findEmptySpot }) {
           <div
             key={i}
             className="studio-sticker"
-            style={{ fontSize, color: currentStyle.text, userSelect: "none", letterSpacing: isBorder ? '0.03em' : '0' }}
+            style={{ fontSize, color: currentStyle.text, userSelect: "none", letterSpacing: isBorder ? '0.03em' : '0',
+                     fontFamily: '"Segoe UI Symbol", "Apple Symbols", "Noto Sans Symbols2", "Noto Sans Symbols", system-ui, sans-serif',
+                     fontVariantEmoji: 'text' }}
             title={glyph.name}
             onClick={() => {
               const pos = findEmptySpot(36, 36);
@@ -1214,7 +1228,7 @@ function ArtPanel({ currentStyle, addCard, zRef, findEmptySpot }) {
               });
             }}
           >
-            {glyph.char}
+            {glyphText(glyph.char)}
           </div>
         ))}
       </div>
@@ -1402,13 +1416,15 @@ function CardView({ card, isAbs, gridSpan, board, onUpdate, onDelete, zRef, them
           <span style={{
             pointerEvents: 'auto',
             display: 'inline-block',
+            fontFamily: '"Segoe UI Symbol", "Apple Symbols", "Noto Sans Symbols2", "Noto Sans Symbols", system-ui, sans-serif',
+            fontVariantEmoji: 'text',
             fontSize: (card.content.fontSize || '1.5rem').replace(/(\d+\.?\d*)/, (m) => {
               const scale = card.initW ? Math.min(card.w / card.initW, card.h / card.initH) : 1;
               return (parseFloat(m) * scale).toFixed(1);
             }),
             lineHeight: 1,
           }}>
-            {card.content.char}
+            {glyphText(card.content.char)}
           </span>
         </div>
       )}
