@@ -11,6 +11,10 @@ HF_API_TOKEN          = os.getenv("HF_API_TOKEN")
 SPOTIFY_CLIENT_ID     = os.getenv("SPOTIFY_CLIENT_ID")
 SPOTIFY_CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET")
 SPOTIFY_REDIRECT_URI  = os.getenv("SPOTIFY_REDIRECT_URI")
+# Long-lived refresh token for the dedicated M&M curator Spotify account. Every
+# generated playlist is written to this account (unlisted) and shared via URL.
+# Bootstrap once with scripts/get_curator_token.py, paste output here.
+CURATOR_REFRESH_TOKEN = os.getenv("CURATOR_REFRESH_TOKEN")
 # Public base URL of the frontend, used to build password-reset links sent by
 # email. Defaults to the local dev origin.
 FRONTEND_URL          = os.getenv("FRONTEND_URL", "http://localhost:5173")

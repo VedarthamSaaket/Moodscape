@@ -1,3 +1,9 @@
+/* @import MUST be the first rule in the stylesheet — CSS spec drops any
+   @import that follows a non-@import rule. Chrome enforces this strictly;
+   Safari is lenient, which is why Chrome was silently falling back to
+   system fonts while Safari rendered Cormorant/DM Sans correctly. */
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;0,700;1,300;1,400;1,600&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,300&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap');
+
 /* ============================================================
    MoodScape, App.css
    Landing  : Cinematic steel-grey mountain palette
@@ -21,8 +27,6 @@ body {
                'Segoe UI Symbol', 'Apple Symbols', 'Noto Sans Symbols 2';
   font-variant-emoji: text;
 }
-
-@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;0,700;1,300;1,400;1,600&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,300&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap');
 
 @font-face {
   font-family: 'Tangerine';

@@ -13,7 +13,7 @@ from config import (
     SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET,
     SPOTIFY_REDIRECT_URI, SPOTIFY_SCOPES,
 )
-from routers import auth, playlist, mood, studio, quiz, youtube, saved, player, saint, images
+from routers import auth, playlist, mood, studio, quiz, youtube, saved, player, saint, images, curator_setup
 
 
 sp_oauth = SpotifyOAuth(
@@ -91,6 +91,7 @@ app.include_router(saved.router)
 app.include_router(player.router)
 app.include_router(saint.router)
 app.include_router(images.router)
+app.include_router(curator_setup.router)
 
 
 # Any uncaught exception below CORSMiddleware would otherwise hit Starlette's

@@ -14,7 +14,7 @@ class UserLogin(BaseModel):
 class PlaylistRequest(BaseModel):
     moodText:          str
     playlistIntent:    Optional[str]       = None
-    playlistName:      str                 = "Vaedarth AI Playlist"
+    playlistName:      str                 = "M&M Playlist"
     trackCountRange:   str                 = "15-30"
     filmIndustry:      Optional[str]       = None
     movieName:         Optional[str]       = None
@@ -36,6 +36,12 @@ class PlaylistRequest(BaseModel):
     # Free-text dislikes typed into moodText are parsed server-side in addition
     # to this list (see exclusions.py).
     dislikedGenres:       Optional[list[str]] = None
+    # Frontend renders the playlist cover SVG → JPEG via canvas and forwards
+    # the base64 payload (no "data:image/jpeg;base64," prefix). Backend
+    # uploads it to Spotify via the curator account token. coverSeed is kept
+    # for logging / parity with the frontend's seeded palette.
+    coverImageBase64:     Optional[str] = None
+    coverSeed:            Optional[int] = None
 
 
 class SuggestionsRequest(BaseModel):
@@ -90,3 +96,11 @@ class SimilarTracksRequest(BaseModel):
     language:        Optional[str]       = None
     genre:           Optional[str]       = None
     ignored_uris:    Optional[list[str]] = None
+
+
+class RemoveTrackRequest(BaseModel):
+    """Remove a single track URI from a curator-owned playlist. Replaces the
+    direct-from-frontend Spotify DELETE call (frontend no longer has a
+    user-Spotify token now that auth has moved entirely to the curator account)."""
+    playlist_id: str
+    uri:         str

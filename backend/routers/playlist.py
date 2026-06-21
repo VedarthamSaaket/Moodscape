@@ -5,19 +5,23 @@ from concurrent.futures import as_completed, TimeoutError as FutureTimeoutError
 
 from fastapi import APIRouter, HTTPException, Request
 
-from security import require_session_token, validate_spotify_token, sanitise_user_text, sanitise_language, sanitise_genre, sanitise_movie, sanitise_search_token
+from security import require_session_token, sanitise_user_text, sanitise_language, sanitise_genre, sanitise_movie, sanitise_search_token
 from config import logger, LANGUAGE_ALIASES, LANGUAGE_CONFIG, PLAYLIST_RANGES, resolve_track_count
 from mood_engine import (
     parse_mood_profile, detect_indian_language, build_search_queries,
     DeduplicationState, _GLOBAL_EXECUTOR,
 )
 from spotify import (
-    get_spotify_user_profile, normalise_track, search_tracks_by_query,
-    search_movie_album, create_playlist_in_profile, add_tracks_to_playlist,
-    verify_playlist_ownership, get_recommendations, get_app_token,
-    search_artist, get_artist_top_tracks,
+    normalise_track, search_tracks_by_query, search_movie_album,
+    get_recommendations, get_app_token, search_artist, get_artist_top_tracks,
 )
-from models import PlaylistRequest, AddTracksRequest, SimilarTracksRequest, SuggestionsRequest
+from curator import (
+    create_curator_playlist, add_tracks_curator, remove_tracks_curator,
+    upload_cover_curator,
+)
+from models import (
+    PlaylistRequest, SimilarTracksRequest, SuggestionsRequest, RemoveTrackRequest,
+)
 from exclusions import build_exclusions
 
 router = APIRouter()
@@ -25,14 +29,21 @@ router = APIRouter()
 
 @router.post("/api/create-playlist")
 def create_playlist(data: PlaylistRequest, request: Request):
+    """Generate a playlist and write it to the M&M curator Spotify account.
+
+    The end user never authenticates with Spotify. All catalog search uses the
+    app-level Client-Credentials token (no user auth needed). The final write
+    — playlist creation, track adds, cover upload — uses the curator account's
+    refresh token (env: CURATOR_REFRESH_TOKEN). The playlist is created with
+    `public=False` so it does NOT appear on the curator's public profile, but
+    the returned share URL still opens for anyone who has it.
+    """
     require_session_token(request, lax=True)
 
-    auth_header = request.headers.get("Authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Missing or invalid Spotify token")
-
-    raw_token    = auth_header.split(" ", 1)[1]
-    access_token = validate_spotify_token(raw_token)
+    # Catalog search uses the app-scoped Client-Credentials token. Same
+    # endpoints as user-authenticated Spotify search, just without per-user
+    # personalisation (which we don't need for mood/genre/language matching).
+    access_token = get_app_token()
 
     mood_text = sanitise_user_text(data.moodText.strip(), "moodText", max_len=500)
     intent    = sanitise_user_text(data.playlistIntent.strip(), "playlistIntent", max_len=200) if data.playlistIntent else None
@@ -101,9 +112,6 @@ def create_playlist(data: PlaylistRequest, request: Request):
     )
 
     try:
-        user_profile = get_spotify_user_profile(access_token)
-        user_id      = user_profile["id"]
-
         dedup2     = DeduplicationState()
         all_tracks = []
         track_uris = []
@@ -167,18 +175,24 @@ def create_playlist(data: PlaylistRequest, request: Request):
             desc_parts.append(f"Intent: {intent[:60]}")
         desc = " | ".join(desc_parts)
 
-        playlist_obj = create_playlist_in_profile(
-            access_token, user_id, data.playlistName or "Vaedarth AI Playlist", desc
-        )
+        name = data.playlistName or "M&M Playlist"
+        playlist_obj = create_curator_playlist(name, desc)
         playlist_id  = playlist_obj["id"]
         playlist_url = playlist_obj["external_urls"]["spotify"]
 
-        add_tracks_to_playlist(access_token, playlist_id, track_uris)
+        add_tracks_curator(playlist_id, track_uris)
+
+        # Cover upload is best-effort — the playlist is fully usable without
+        # one (Spotify shows a mosaic of track art as the default). Run it
+        # synchronously so the URL we return already has the right cover when
+        # the user clicks Open in Spotify.
+        if data.coverImageBase64:
+            upload_cover_curator(playlist_id, data.coverImageBase64)
 
         return {
             "playlist_url":  playlist_url,
             "playlist_id":   playlist_id,
-            "playlist_name": data.playlistName or "Vaedarth AI Playlist",
+            "playlist_name": name,
             "tracks":        all_tracks,
         }
 
@@ -188,39 +202,37 @@ def create_playlist(data: PlaylistRequest, request: Request):
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-@router.post("/api/add-tracks")
-def add_tracks_endpoint(data: AddTracksRequest, request: Request):
+@router.post("/api/playlist/remove-track")
+def remove_track_endpoint(data: RemoveTrackRequest, request: Request):
+    """Remove a single track from a curator-owned playlist.
+
+    Replaces the direct-from-frontend Spotify DELETE call. The frontend no
+    longer holds a Spotify token (auth moved entirely to the curator
+    account), so all writes route through the backend with the curator's
+    token. Playlist-ownership check is implicit: every playlist created by
+    this app lives on the curator account, and only this app's backend
+    holds the curator refresh token, so the API surface is naturally
+    scoped to playlists we created.
+    """
     require_session_token(request, lax=True)
-
-    auth_header = request.headers.get("Authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Missing or invalid Spotify token")
-    raw_token    = auth_header.split(" ", 1)[1]
-    access_token = validate_spotify_token(raw_token)
-
-    user_profile = get_spotify_user_profile(access_token)
-    verify_playlist_ownership(access_token, data.playlist_id, user_profile["id"])
-
+    if not data.uri.startswith("spotify:track:"):
+        raise HTTPException(status_code=400, detail="Invalid track URI.")
     try:
-        add_tracks_to_playlist(access_token, data.playlist_id, data.uris)
-        return {"message": f"Added {len(data.uris)} track(s)."}
+        remove_tracks_curator(data.playlist_id, [data.uri])
+        return {"message": "Track removed."}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
 
 @router.post("/api/similar-tracks")
 def similar_tracks(data: SimilarTracksRequest, request: Request):
+    """Find ~20 tracks sonically near the seed track and add them to a
+    curator-owned playlist. Search uses the app-level Client-Credentials
+    token; writes use the curator account token."""
     require_session_token(request, lax=True)
 
-    auth_header = request.headers.get("Authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Missing or invalid Spotify token")
-    raw_token    = auth_header.split(" ", 1)[1]
-    access_token = validate_spotify_token(raw_token)
+    access_token = get_app_token()
     headers      = {"Authorization": f"Bearer {access_token}"}
-
-    user_profile = get_spotify_user_profile(access_token)
-    verify_playlist_ownership(access_token, data.playlist_id, user_profile["id"])
 
     safe_language = sanitise_search_token(data.language or "english", "language")
     safe_genre    = sanitise_search_token(data.genre or "", "genre")
@@ -304,7 +316,7 @@ def similar_tracks(data: SimilarTracksRequest, request: Request):
         raise HTTPException(status_code=404, detail="No similar tracks found")
 
     uris_to_add = [t["uri"] for t in result_tracks if t.get("uri")]
-    add_tracks_to_playlist(access_token, data.playlist_id, uris_to_add)
+    add_tracks_curator(data.playlist_id, uris_to_add)
 
     return {
         "tracks": [

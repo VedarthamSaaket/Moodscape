@@ -129,29 +129,48 @@ function svgToDataUrl(svgStr) {
   return 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgStr)));
 }
 
-// Spotify access tokens expire after ~1h. Trade the stored refresh_token for a
-// fresh access_token, persist it, and return it (or null if we can't refresh —
-// e.g. no refresh_token stored from an older session). Caller should then ask
-// the user to reconnect.
-async function refreshSpotifyToken() {
-  const refresh = localStorage.getItem('spotify_refresh_token');
-  if (!refresh) return null;
-  const sessionToken = localStorage.getItem('authToken') || '';
-  try {
-    const res = await fetch(`${API_BASE}/api/refresh/spotify`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Session-Token': sessionToken },
-      body: JSON.stringify({ refresh_token: refresh }),
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
-    if (!data.access_token) return null;
-    localStorage.setItem('spotify_token', data.access_token);
-    if (data.refresh_token) localStorage.setItem('spotify_refresh_token', data.refresh_token);
-    return data.access_token;
-  } catch {
-    return null;
-  }
+// Render the playlist cover SVG to a JPEG base64 string (no data: prefix) so
+// the backend can forward it to Spotify's /playlists/{id}/images endpoint
+// with the curator account token. Returns null if rendering fails — cover is
+// best-effort, Spotify falls back to a mosaic of track art when missing.
+function renderCoverJpegBase64(seed) {
+  return new Promise((resolve) => {
+    try {
+      const svgStr = generateCoverSVG(seed);
+      const blob = new Blob([svgStr], { type: 'image/svg+xml' });
+      const blobUrl = URL.createObjectURL(blob);
+      const img = new Image();
+
+      img.onload = () => {
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = 300;
+          canvas.height = 300;
+          const ctx = canvas.getContext('2d');
+          ctx.fillStyle = '#000000';
+          ctx.fillRect(0, 0, 300, 300);
+          ctx.drawImage(img, 0, 0, 300, 300);
+          URL.revokeObjectURL(blobUrl);
+          const b64 = canvas.toDataURL('image/jpeg', 0.92).split(',')[1];
+          resolve(b64 || null);
+        } catch (e) {
+          console.warn('[COVER] canvas render failed:', e);
+          resolve(null);
+        }
+      };
+
+      img.onerror = (e) => {
+        console.warn('[COVER] SVG failed to load as image:', e);
+        URL.revokeObjectURL(blobUrl);
+        resolve(null);
+      };
+
+      img.src = blobUrl;
+    } catch (e) {
+      console.warn('[COVER] unexpected error:', e);
+      resolve(null);
+    }
+  });
 }
 
 function LanguagePillSelector({ label, options, selected, onChange }) {
@@ -239,11 +258,11 @@ function GenrePillSelector({ label, options, selected, onChange }) {
   );
 }
 
-function SuggestButton({ track, token, playlistId, onAdded, moodText, selectedLanguages, selectedGenres }) {
+function SuggestButton({ track, playlistId, onAdded, moodText, selectedLanguages, selectedGenres }) {
   const [state, setState] = useState('idle');
 
   const handleClick = async () => {
-    if (state !== 'idle' || !token) return;
+    if (state !== 'idle' || !playlistId) return;
     setState('loading');
     const appToken = localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
     try {
@@ -251,7 +270,6 @@ function SuggestButton({ track, token, playlistId, onAdded, moodText, selectedLa
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
           'X-Session-Token': appToken || '',
         },
         body: JSON.stringify({
@@ -374,28 +392,9 @@ export default function GeneratorPage() {
   const [playlistUrl, setPlaylistUrl] = useState(null);
   const [playlistId, setPlaylistId] = useState(null);
   const [playlistNameResult, setPlaylistNameResult] = useState('');
-  // Reactive so the UI flips to "connected" the moment the Spotify token lands
-  // in localStorage (e.g. returning from /callback), without needing a reload.
-  const [isConnected, setIsConnected] = useState(!!localStorage.getItem('spotify_token'));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  // If we bounced back from a failed Spotify link (?spotify=failed), surface a
-  // gentle message instead of silently showing the connect button again — and
-  // re-check the token in case it did land. Also re-reads the token on focus so
-  // a tab that finished OAuth in another window updates here too.
-  useEffect(() => {
-    const sync = () => setIsConnected(!!localStorage.getItem('spotify_token'));
-    sync();
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('spotify') === 'failed') {
-      setError('Spotify connection didn’t complete. Please try connecting again.');
-    }
-    window.addEventListener('focus', sync);
-    return () => window.removeEventListener('focus', sync);
-  }, []);
-
-  const token = localStorage.getItem('spotify_token');
   const sessionToken = localStorage.getItem('authToken');
   const coverDataUrl = svgToDataUrl(generateCoverSVG(coverSeed));
 
@@ -407,18 +406,6 @@ export default function GeneratorPage() {
       'Devotional', 'Indian Folk',
     ].includes(g)) ||
     filmIndustry !== '';
-
-  const handleSpotifyConnect = async () => {
-    try {
-      setError(null);
-      const res = await fetch(`${API_BASE}/api/login/spotify`);
-      const data = await res.json();
-      if (!data.authorization_url) throw new Error('no url');
-      window.location.href = data.authorization_url;
-    } catch {
-      setError('Could not connect to Spotify.');
-    }
-  };
 
   const handleGeneratePlaylist = async (e) => {
     e.preventDefault();
@@ -433,7 +420,10 @@ export default function GeneratorPage() {
     setLoading(true);
 
     try {
-      if (!token) throw new Error('Connect your Spotify account first.');
+      // Render the cover JPEG client-side (canvas) so the backend doesn't
+      // need Pillow / cairosvg. Backend forwards the base64 to Spotify's
+      // /playlists/{id}/images endpoint using the curator account token.
+      const coverB64 = await renderCoverJpegBase64(newSeed);
 
       const body = {
         moodText: moodText.trim(),
@@ -449,30 +439,17 @@ export default function GeneratorPage() {
         styleVibePrompt:    styleContext?.vibePrompt || null,
         pinnedUris: (pinnedTracks || []).map((t) => t.uri).filter(Boolean),
         dislikedGenres: parseDislikesField(dislikedText),
+        coverSeed: newSeed,
+        coverImageBase64: coverB64,
       };
 
-      let activeToken = token;
-      const postCreate = (tok) => fetch(`${API_BASE}/api/create-playlist`, {
+      const response = await fetch(`${API_BASE}/api/create-playlist`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}`, 'X-Session-Token': sessionToken || '' },
+        headers: { 'Content-Type': 'application/json', 'X-Session-Token': sessionToken || '' },
         body: JSON.stringify(body),
       });
 
-      let response = await postCreate(activeToken);
-
-      // Token likely expired mid-session → refresh once and retry.
-      if (response.status === 401) {
-        const fresh = await refreshSpotifyToken();
-        if (fresh) {
-          activeToken = fresh;
-          response = await postCreate(fresh);
-        }
-      }
-
       if (!response.ok) {
-        if (response.status === 401) {
-          throw new Error('Your Spotify session expired. Please reconnect Spotify and try again.');
-        }
         let err = {};
         try { err = await response.json(); } catch { /* non-JSON error body */ }
         throw new Error(err.detail || err.error || 'Failed to generate playlist');
@@ -492,67 +469,11 @@ export default function GeneratorPage() {
       setPlaylistUrl(data.playlist_url);
       setPlaylistId(data.playlist_id || null);
       setPlaylistNameResult(playlistName.trim() || `M&M playlist ${playlistNum}`);
-
-      if (data.playlist_id) uploadCoverToSpotify(activeToken, data.playlist_id, newSeed);
     } catch (err) {
       setError(err.message || 'Unexpected error');
     } finally {
       setLoading(false);
     }
-  };
-
-  const uploadCoverToSpotify = (tok, pid, seed) => {
-    // Spotify's create-playlist write and the /images read endpoint hit
-    // different replicas, so a same-tick upload often 404s ("playlist not
-    // found") even though the playlist exists. Give the write a moment to
-    // propagate, then retry on 404 a few times with backoff.
-    const putCover = (b64, attempt = 0) =>
-      fetch(`https://api.spotify.com/v1/playlists/${pid}/images`, {
-        method: 'PUT',
-        headers: { Authorization: `Bearer ${tok}`, 'Content-Type': 'image/jpeg' },
-        body: b64,
-      }).then(async r => {
-        if (r.ok) {
-          console.log('[COVER] uploaded successfully');
-          return;
-        }
-        const t = await r.text();
-        if (r.status === 404 && attempt < 4) {
-          const wait = 1500 * (attempt + 1);
-          console.warn(`[COVER] 404 (replica lag), retrying in ${wait}ms (attempt ${attempt + 1}/4)`);
-          setTimeout(() => putCover(b64, attempt + 1), wait);
-          return;
-        }
-        console.warn('[COVER] rejected:', r.status, t);
-      }).catch(e => console.warn('[COVER] fetch error:', e));
-
-    setTimeout(() => {
-      try {
-        const svgStr = generateCoverSVG(seed);
-        const blob = new Blob([svgStr], { type: 'image/svg+xml' });
-        const blobUrl = URL.createObjectURL(blob);
-        const img = new Image();
-
-        img.onload = () => {
-          const canvas = document.createElement('canvas');
-          canvas.width = 300;
-          canvas.height = 300;
-          const ctx = canvas.getContext('2d');
-          ctx.fillStyle = '#000000';
-          ctx.fillRect(0, 0, 300, 300);
-          ctx.drawImage(img, 0, 0, 300, 300);
-          URL.revokeObjectURL(blobUrl);
-
-          const b64 = canvas.toDataURL('image/jpeg', 0.92).split(',')[1];
-          putCover(b64);
-        };
-
-        img.onerror = (e) => console.warn('[COVER] SVG failed to load as image:', e);
-        img.src = blobUrl;
-      } catch (e) {
-        console.warn('[COVER] unexpected error:', e);
-      }
-    }, 2500);
   };
 
   const handleSimilarAdded = useCallback((newTracks) => {
@@ -563,30 +484,31 @@ export default function GeneratorPage() {
     setPlaylist(prev => prev.filter((_, i) => i !== index));
 
     if (!window.ignoredTrackUris) window.ignoredTrackUris = new Set();
+    let trackId = null;
     if (track.spotifyUrl) {
       let id = track.spotifyUrl.split('/').pop();
       if (id.includes('?')) id = id.split('?')[0];
-      if (id) window.ignoredTrackUris.add(`spotify:track:${id}`);
+      if (id) {
+        trackId = id;
+        window.ignoredTrackUris.add(`spotify:track:${id}`);
+      }
     }
 
-    if (playlistId && token && track.spotifyUrl) {
+    if (playlistId && trackId) {
       try {
-        let trackId = track.spotifyUrl.split('/').pop();
-        if (trackId.includes('?')) trackId = trackId.split('?')[0];
-        if (!trackId) return;
-
-        await fetch(`https://api.spotify.com/v1/playlists/${playlistId}/tracks`, {
-          method: 'DELETE',
+        await fetch(`${API_BASE}/api/playlist/remove-track`, {
+          method: 'POST',
           headers: {
-            Authorization: `Bearer ${token}`,
             'Content-Type': 'application/json',
+            'X-Session-Token': sessionToken || '',
           },
           body: JSON.stringify({
-            tracks: [{ uri: `spotify:track:${trackId}` }]
-          })
+            playlist_id: playlistId,
+            uri:         `spotify:track:${trackId}`,
+          }),
         });
       } catch (err) {
-        console.warn('Failed to remove from Spotify playlist', err);
+        console.warn('Failed to remove from playlist', err);
       }
     }
   };
@@ -596,7 +518,7 @@ export default function GeneratorPage() {
       <div className="gen-card">
 
         <div className="gen-header">
-          <div className="gen-eyebrow">Vædarth · AI Curator</div>
+          <div className="gen-eyebrow">M&amp;M · AI Curator</div>
           <h1 className="gen-title">Playlist<br />Generator</h1>
           <p className="gen-subtitle">
             Please tell us how you feel. We'll compose the soundtrack for you :D
@@ -638,24 +560,7 @@ export default function GeneratorPage() {
           </div>
         )}
 
-        {!isConnected && (
-          <div className="gen-connect-block">
-            <div className="gen-connect-inner">
-              <SpotifyIcon size={28} />
-              <div>
-                <p className="gen-connect-heading">Connect Spotify to begin</p>
-                <p className="gen-connect-sub">We'll generate a playlist and save it directly to your library.</p>
-              </div>
-            </div>
-            <button className="btn-spotify-connect" onClick={handleSpotifyConnect}>
-              <SpotifyIcon size={15} />
-              Authenticate with Spotify
-            </button>
-          </div>
-        )}
-
-        {isConnected && (
-          <form className="gen-form" onSubmit={handleGeneratePlaylist}>
+        <form className="gen-form" onSubmit={handleGeneratePlaylist}>
 
             <div className="gen-field">
               <label className="gen-label">Describe your mood &amp; intent</label>
@@ -792,7 +697,6 @@ export default function GeneratorPage() {
                 : <><MusicIcon />Generate Playlist</>}
             </button>
           </form>
-        )}
 
         {error && <div className="gen-error">{error}</div>}
 
@@ -857,7 +761,6 @@ export default function GeneratorPage() {
                   </button>
                   <SuggestButton
                     track={{ title, artist }}
-                    token={token}
                     playlistId={playlistId}
                     onAdded={handleSimilarAdded}
                     moodText={moodText}
