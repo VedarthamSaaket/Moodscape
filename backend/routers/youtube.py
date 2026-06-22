@@ -21,6 +21,7 @@ from fastapi import APIRouter, HTTPException, Request
 from security import require_session_token, sanitise_search_token
 from database import get_db_connection, release_db_connection
 from config import logger, YOUTUBE_API_KEY
+from sound_seeds import is_sound_track
 
 
 router = APIRouter()
@@ -260,12 +261,18 @@ def _required_versions(spotify_title: str) -> set:
 
 def _is_identity_match(yt_title: str, yt_channel: str,
                        want_title_tokens: list, want_artist_tokens: list,
-                       required_versions: set) -> bool:
+                       required_versions: set, relax_artist: bool = False) -> bool:
     """True iff this YouTube video is actually the song the user asked for.
 
     Matching tolerates channels that concatenate words ("WendyWangVEVO",
     "JonasBrothersVEVO", "RihannaForVEVO") by using substring containment on
     the channel string in addition to exact-word membership on the title.
+
+    `relax_artist=True` skips the artist-must-appear gate — used for
+    ambient/noise/nature-sound tracks where the Spotify "artist" is a
+    label ("Nature Sounds", "Sleep Music Inc") that rarely matches the
+    uploader name on YouTube. For these tracks the title content
+    (e.g. "Pink Noise 10 Hours") IS the identity.
     """
     if not want_title_tokens:
         return False
@@ -282,8 +289,10 @@ def _is_identity_match(yt_title: str, yt_channel: str,
     if matched < max(1, int(round(0.8 * len(want_title_tokens)))):
         return False
 
-    # Artist must appear somewhere — single-token or first-token match counts.
-    if want_artist_tokens and not any(in_title_or_channel(a) for a in want_artist_tokens):
+    # Artist gate — single-token or first-token match counts. Skipped for
+    # ambient/noise tracks where the Spotify "artist" rarely matches the
+    # YouTube uploader for the same content.
+    if not relax_artist and want_artist_tokens and not any(in_title_or_channel(a) for a in want_artist_tokens):
         return False
 
     # Banned content gate — but allow if the Spotify track itself uses that word.
@@ -349,7 +358,11 @@ def _raw_search_ids(query: str, max_results: int = 25, music_only: bool = False)
         return []
 
 
-def _search_candidates(title: str, artist: str, target_seconds: int = 0) -> list:
+def _search_candidates(title: str, artist: str, target_seconds: int = 0) -> list:  # noqa: C901
+    # Ambient/noise/nature tracks need looser rules: artist matching is mostly
+    # meaningless (the Spotify "artist" is usually a label like "Sleep Sounds")
+    # and the actual upload duration varies wildly (30s loop ↔ 10-hour version).
+    ambient = is_sound_track(title, artist)
     """Resolve "<title> <artist>" to videoIds that ACTUALLY ARE that song.
 
     Pipeline:
@@ -415,7 +428,7 @@ def _search_candidates(title: str, artist: str, target_seconds: int = 0) -> list
         m = meta.get(vid) or {}
         if _is_identity_match(m.get("title", ""), m.get("channel", ""),
                               want_title_tokens, want_artist_tokens,
-                              required_versions):
+                              required_versions, relax_artist=ambient):
             identity_ok.append(vid)
 
     if not identity_ok:
@@ -426,18 +439,27 @@ def _search_candidates(title: str, artist: str, target_seconds: int = 0) -> list
         return []
 
     # Stage 2: duration tiers.
-    full_length = [v for v in identity_ok if (meta.get(v) or {}).get("duration", 0) >= _MIN_SONG_SECONDS]
+    # Ambient/noise tracks live happily at 30s loops AND 10-hour versions —
+    # the upload durations don't correlate with the Spotify track duration.
+    # Drop the full-length floor for these so an iframe play of "Pink Noise"
+    # doesn't lose to a 5-min cap. Also disable the ±15s/±35s tightness
+    # since matching duration to Spotify's preview length is meaningless.
+    min_full = 25 if ambient else _MIN_SONG_SECONDS
+    full_length = [v for v in identity_ok if (meta.get(v) or {}).get("duration", 0) >= min_full]
 
     def by_score(vid: str):
         m = meta.get(vid) or {}
         dur = m.get("duration", 0)
-        delta = abs(dur - target_seconds) if target_seconds > 0 else 0
+        delta = abs(dur - target_seconds) if (target_seconds > 0 and not ambient) else 0
         embed_bonus = 0 if m.get("embeddable") else 1
-        return (delta, embed_bonus, ids.index(vid))
+        # For ambient tracks, prefer LONGER uploads (a 1-hour pink noise is
+        # better than a 30s loop). For songs, prefer closeness-to-target.
+        ambient_pref = -(m.get("duration", 0)) if ambient else 0
+        return (delta, ambient_pref, embed_bonus, ids.index(vid))
 
     tier = []
     tier_label = "unknown"
-    if target_seconds > 0 and full_length:
+    if target_seconds > 0 and full_length and not ambient:
         tight = [v for v in full_length if abs(meta[v]["duration"] - target_seconds) <= 15]
         loose = [v for v in full_length if abs(meta[v]["duration"] - target_seconds) <= 35]
         if tight:
@@ -445,7 +467,7 @@ def _search_candidates(title: str, artist: str, target_seconds: int = 0) -> list
         elif loose:
             tier, tier_label = loose, "loose ±35s"
     if not tier and full_length:
-        tier, tier_label = full_length, "full-length / no duration target"
+        tier, tier_label = full_length, ("ambient pool" if ambient else "full-length / no duration target")
 
     # Snippet fallback — last resort, only when no full-length identity match
     # exists at any duration. The user explicitly asked for this: "if there is
@@ -498,12 +520,23 @@ def resolve_youtube(request: Request, title: str = "", artist: str = "", exclude
     exclude_set = {e.strip() for e in (exclude or "").split(",") if e.strip()}
     key = _cache_key(title, artist)
 
-    # Fast path: return the full cached candidate list so the player has fallbacks
-    # without paying for a fresh search on every code=150.
-    if not exclude_set:
-        found, cached_ids = _cache_get(key)
-        if found and cached_ids:
-            return {"videoId": cached_ids[0], "candidates": cached_ids, "cached": True}
+    # Cache-first path — works for BOTH the initial play AND the iframe's
+    # exclude-driven retry after a code=150. The recurring "couldn't load,
+    # skipping" symptom was caused by exclude= bypassing the cache entirely:
+    # every iframe error 150 triggered a fresh 600-quota search, and after
+    # ~16 of those the daily YouTube quota was exhausted so EVERY subsequent
+    # resolution returned None → app-wide "skipping" for the rest of the day.
+    # Now: when exclude is set, try the remaining cached candidates first;
+    # only do a fresh search when the entire cached pool is dead.
+    found, cached_ids = _cache_get(key)
+    if found and cached_ids:
+        remaining = [c for c in cached_ids if c not in exclude_set]
+        if remaining:
+            return {"videoId": remaining[0], "candidates": remaining, "cached": True}
+        # Cached pool fully exhausted by the iframe's exclude list — fall
+        # through to a fresh search below (but reuse the cached ids as
+        # already-tried so we don't re-pick them).
+        exclude_set |= set(cached_ids)
 
     if not YOUTUBE_API_KEY:
         # Not configured — tell the client so it can fall back gracefully.
