@@ -16,8 +16,10 @@ Schema is created idempotently at first use; no separate migration step.
 import json
 import os
 import re
+import threading
 import time
 import unicodedata
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional
 
 import requests
@@ -28,6 +30,70 @@ from security import require_session_token, sanitise_search_token
 from database import get_db_connection, release_db_connection
 from config import logger, YOUTUBE_API_KEY
 from sound_seeds import is_sound_track
+
+# ── ytmusicapi (unofficial YouTube Music) — EQUAL-PRIORITY resolver ─────────
+# YouTube Music exposes a music-curated catalogue: official song records only,
+# no covers / reactions / tutorials / Shorts. Its uploads are uniformly
+# embeddable and syndicated (they're the Topic-channel masters that Spotify
+# auto-mirrors). Hits a public unofficial endpoint with NO quota cost — frees
+# us to fan out wider than the Data API's 10k/day budget allows.
+#
+# The two resolvers (YouTube Data API + YouTube Music) run IN PARALLEL via
+# the thread executor below; their candidate IDs are unioned and scored by
+# the same `_match_score`. Equal priority — neither pre-empts the other; the
+# best-scoring upload across both pools wins.
+try:
+    from ytmusicapi import YTMusic
+    _YTMUSIC_AVAILABLE = True
+except Exception as _exc:                         # library missing or import error
+    YTMusic = None                                # type: ignore
+    _YTMUSIC_AVAILABLE = False
+    logger.warning(f"[YOUTUBE] ytmusicapi unavailable, falling back to Data API only: {_exc}")
+
+_ytmusic_client = None
+_ytmusic_lock = threading.Lock()
+_ytmusic_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="ytmusic")
+
+
+def _get_ytmusic_client():
+    """Lazy singleton YTMusic() — first call constructs the unauthenticated
+    client (anonymous public-search posture, no cookie needed). Returns None
+    if the library is missing or the constructor blows up; callers degrade
+    gracefully to Data-API-only matching."""
+    global _ytmusic_client
+    if not _YTMUSIC_AVAILABLE:
+        return None
+    if _ytmusic_client is not None:
+        return _ytmusic_client
+    with _ytmusic_lock:
+        if _ytmusic_client is None:
+            try:
+                _ytmusic_client = YTMusic()
+            except Exception as exc:
+                logger.warning(f"[YOUTUBE] YTMusic() init failed: {exc}")
+                _ytmusic_client = None
+    return _ytmusic_client
+
+
+def _ytmusic_duration_to_seconds(s) -> int:
+    """ytmusicapi returns duration as 'M:SS' or 'H:MM:SS'; convert to seconds.
+    `duration_seconds` is also sometimes present and preferred when set."""
+    if isinstance(s, int):
+        return max(0, int(s))
+    if not s:
+        return 0
+    parts = str(s).split(":")
+    try:
+        parts = [int(p) for p in parts]
+    except ValueError:
+        return 0
+    if len(parts) == 3:
+        return parts[0] * 3600 + parts[1] * 60 + parts[2]
+    if len(parts) == 2:
+        return parts[0] * 60 + parts[1]
+    if len(parts) == 1:
+        return parts[0]
+    return 0
 
 
 router = APIRouter()
@@ -80,10 +146,13 @@ def _ensure_schema() -> None:
         release_db_connection(conn)
 
 
-# v7: search-time embeddable+syndicated filter + duration bucket + 3-tier
-# resolve (strict → relaxed → union-surface). Cache bumped to drop v6 rows
-# that were cached before the source-side iframe-friendly filter existed.
-_CACHE_VERSION = "v7"
+# v9: YouTube Music resolver narrowed to `filter='songs'` only — Topic-channel
+# AUDIO masters, the Spotify auto-mirrors. The previous v8 also pulled the
+# `videos` (music-video) filter; visually irrelevant in our hidden iframe
+# and occasionally carried channel-intro audio. Audio-master score nudge
+# bumped to +0.06 to reflect the stronger identity signal. Cache bumped so
+# every v8 row reranks against the new audio-master preference.
+_CACHE_VERSION = "v9"
 
 
 def _cache_key(title: str, artist: str) -> str:
@@ -536,6 +605,65 @@ def _match_score(meta: dict, want_title_tokens: list, want_artist_tokens: list,
     return max(0.0, min(1.0, score)), title_cov
 
 
+def _ytmusic_search(query: str, max_results: int = 30) -> tuple:
+    """One YouTube Music search → (ordered_ids, {id: meta}) matching the
+    same shape `_video_meta` returns for the Data API path.
+
+    ── AUDIO ONLY ────────────────────────────────────────────────────────
+    Hits ONLY YouTube Music's `songs` filter — the Topic-channel audio
+    masters that Spotify auto-mirrors. These are the actual audio uploads
+    (no music videos, no live recordings, no fan covers, no remixes); the
+    same audio you'd hear playing the track natively in Spotify, served by
+    YouTube's catalogue and embeddable in our hidden iframe.
+    The `videos` filter (music VIDEOS — visual uploads) is intentionally
+    skipped: the iframe is invisible in this app, so a video upload would
+    just give us a visually-different copy of the audio we already had,
+    while sometimes carrying extra channel/intro audio noise.
+
+    Each result already carries title / channel / duration so NO videos.list
+    quota call is needed for these — we mark them embeddable by default
+    (Topic-channel masters are uniformly syndicated; the iframe still vets
+    at runtime and the player falls through any rare duds).
+
+    Returns ([], {}) on any error so the Data API path keeps working alone.
+    """
+    client = _get_ytmusic_client()
+    if not client or not query:
+        return [], {}
+    try:
+        items = client.search(
+            query, filter="songs",
+            limit=max_results, ignore_spelling=False,
+        ) or []
+    except Exception as exc:
+        logger.warning(f"[YTMUSIC] songs search '{query}' failed: {exc}")
+        return [], {}
+
+    ordered: list = []
+    meta: dict = {}
+    for it in items[:max_results]:
+        vid = (it or {}).get("videoId")
+        if not vid or vid in meta:
+            continue
+        title = it.get("title", "") or ""
+        artists = it.get("artists") or []
+        # Concatenate every credited artist; identity matching looks for
+        # the artist tokens anywhere in title OR channel substring, so
+        # joining them gives the maximal hit surface.
+        channel = " ".join(a.get("name", "") for a in artists if a) or it.get("author", "") or ""
+        dur_raw = it.get("duration_seconds") or it.get("duration") or 0
+        duration = _ytmusic_duration_to_seconds(dur_raw)
+        meta[vid] = {
+            "embeddable": True,        # Topic-channel masters are iframe-friendly
+            "duration":   duration,
+            "title":      title,
+            "channel":    channel,
+            "_source":    "ytmusic",   # debug/log marker, used for scoring nudge
+        }
+        ordered.append(vid)
+    return ordered, meta
+
+
 def _duration_bucket(seconds: int) -> str:
     """Map a target song length to YouTube's `videoDuration` enum.
     short = <4min, medium = 4–20min, long = >20min, any = unknown.
@@ -638,24 +766,71 @@ def _run_search_pipeline(title: str, artist: str, target_seconds: int,
     if not want_title_tokens:
         return [], 0.0, 0.0
 
-    ids: list = []
-    seen: set = set()
+    # ── Parallel fan-out across BOTH resolvers ─────────────────────────────
+    # Data API queries and YouTube Music queries fire concurrently — total
+    # wall-clock = max(slowest single search) rather than sum. Each resolver
+    # contributes its own ordered id list; we union them preserving first-seen
+    # order. YouTube Music's clean catalogue tends to land the strongest
+    # candidates near the top of the union which is exactly what the rank
+    # nudge in `_match_score` rewards.
+    da_futures = []
+    ym_futures = []
     for q, music_only in queries:
         if not q:
             continue
-        batch = _raw_search_ids(
-            q, 25, music_only=music_only,
-            embeddable_only=embeddable_only, duration_bucket=dur_bucket,
-        )
+        da_futures.append((q, _ytmusic_executor.submit(
+            _raw_search_ids, q, 25,
+            music_only=music_only,
+            embeddable_only=embeddable_only,
+            duration_bucket=dur_bucket,
+        )))
+        # Fire YouTube Music on the SAME queries — equal priority, no rate
+        # gating. The shapes that work for the Data API ("title artist",
+        # "title artist audio", etc.) work just as well as YTMusic queries.
+        if _YTMUSIC_AVAILABLE:
+            ym_futures.append((q, _ytmusic_executor.submit(_ytmusic_search, q, 30)))
+
+    ids: list = []
+    seen: set = set()
+    ytmusic_meta: dict = {}
+
+    for _q, fut in da_futures:
+        try:
+            batch = fut.result(timeout=10) or []
+        except Exception as exc:
+            logger.warning(f"[YOUTUBE] DA future failed for {_q!r}: {exc}")
+            continue
         for vid in batch:
             if vid not in seen:
                 seen.add(vid)
                 ids.append(vid)
 
+    for _q, fut in ym_futures:
+        try:
+            ym_ids, ym_meta = fut.result(timeout=10)
+        except Exception as exc:
+            logger.warning(f"[YTMUSIC] future failed for {_q!r}: {exc}")
+            continue
+        for vid in (ym_ids or []):
+            if vid not in seen:
+                seen.add(vid)
+                ids.append(vid)
+            # Even when the Data API and YTMusic returned the SAME id, prefer
+            # YTMusic's authoritative metadata (it's the master record), so
+            # write into the meta dict unconditionally.
+            ytmusic_meta[vid] = ym_meta[vid]
+
     if not ids:
         return [], 0.0, 0.0
 
-    meta = _video_meta(ids)
+    # Fetch Data API metadata only for ids YTMusic didn't already give us
+    # — saves quota on every YTMusic-only hit (which is most of them for
+    # popular catalogue).
+    missing_meta_ids = [v for v in ids if v not in ytmusic_meta]
+    da_meta = _video_meta(missing_meta_ids) if missing_meta_ids else {}
+    # Merge: YTMusic meta wins on overlap (cleaner source).
+    meta = {**da_meta, **ytmusic_meta}
+
     scored = []
     for r, vid in enumerate(ids):
         m = meta.get(vid)
@@ -666,6 +841,14 @@ def _run_search_pipeline(title: str, artist: str, target_seconds: int,
             required_versions, target_seconds, r,
             ambient=ambient,
         )
+        # Audio-master nudge for YouTube Music-sourced candidates — these are
+        # Topic-channel uploads (the actual audio masters Spotify auto-mirrors),
+        # not music videos or fan re-uploads. Larger nudge than before (+0.06)
+        # because the `songs` filter guarantees audio identity; all-else-equal
+        # an audio master is the right pick over a Data API cover/lyric video.
+        # Still bounded so genuine title/artist evidence wins on disagreement.
+        if m.get("_source") == "ytmusic":
+            s = min(1.0, s + 0.06)
         scored.append((s, tcov, vid))
 
     if not scored:
