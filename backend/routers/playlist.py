@@ -26,6 +26,7 @@ from models import (
     PlaylistRequest, SimilarTracksRequest, SuggestionsRequest, RemoveTrackRequest,
 )
 from exclusions import build_exclusions
+from sound_seeds import detect_sound_seeds
 
 router = APIRouter()
 
@@ -147,6 +148,11 @@ def create_playlist(data: PlaylistRequest, request: Request):
         for g in (data.dislikedGenres or [])
         if isinstance(g, str) and g.strip()
     ]
+    # Snapshot the user's full input BEFORE build_exclusions strips dislike
+    # clauses — the sound-seed / niche-genre detector below needs the
+    # ORIGINAL text so a mention like "feeling anxious but want pink noise"
+    # still surfaces "pink noise" even after dislike-clause stripping.
+    raw_mood_for_seeds = mood_text
     exclusions, mood_text = build_exclusions(
         disliked_raw, mood_text,
         explicit_filter=bool(getattr(data, "excludeExplicit", False)),
@@ -235,6 +241,53 @@ def create_playlist(data: PlaylistRequest, request: Request):
                     all_tracks.append({k: v for k, v in t.items() if k != "uri"})
                     added_for_actor += 1
                     if added_for_actor >= per_actor:
+                        break
+
+        # ─── Specific-sound / niche-genre anchors ────────────────────────
+        # The standard mood→emotion→genre pipeline reads "feeling anxious"
+        # but doesn't surface "pink noise" or "whale sounds" the user
+        # explicitly named — those aren't in the genre dropdown or the
+        # query banks. Detect those mentions in the original mood+intent
+        # text (pre-dislike-strip so nothing's lost), fetch a small number
+        # of tracks per seed via direct Spotify search, and prepend so the
+        # user's specific ask is GUARANTEED to land in the playlist.
+        sound_seeds = detect_sound_seeds(raw_mood_for_seeds, intent or "")
+        if sound_seeds:
+            # Cap at ~30% of the playlist (min 3, max 8) so the rest of
+            # the slots still get filled by mood-driven recommendations.
+            seed_cap = max(3, min(8, int(track_count * 0.3)))
+            per_seed = max(1, min(3, max(1, seed_cap // max(1, len(sound_seeds)))))
+            logger.info(
+                f"[SOUND_SEEDS] {len(sound_seeds)} seed(s): "
+                f"{[lbl for (_q, lbl) in sound_seeds[:6]]} cap={seed_cap} per_seed={per_seed}"
+            )
+            # Ambient/sound content is largely catalogue-universal; the US
+            # market has the broadest selection of these uploads on Spotify.
+            seed_market = "US"
+            added_sound = 0
+            for (q, _label) in sound_seeds:
+                if added_sound >= seed_cap:
+                    break
+                try:
+                    hits = search_tracks_by_query(access_token, q, seed_market, limit=per_seed * 4)
+                except Exception as exc:
+                    logger.warning(f"[SOUND_SEEDS] query '{q}' failed: {exc}")
+                    continue
+                added_for_q = 0
+                for raw in hits:
+                    uri = raw.get("uri", "")
+                    a = raw["artists"][0]["name"] if raw.get("artists") else ""
+                    if not uri or not dedup2.is_allowed(uri, a):
+                        continue
+                    if exclusions and exclusions.explicit and raw.get("explicit"):
+                        continue
+                    dedup2.register(uri, a)
+                    track_uris.append(uri)
+                    norm = normalise_track(raw)
+                    all_tracks.append({k: v for k, v in norm.items() if k != "uri"})
+                    added_for_q += 1
+                    added_sound += 1
+                    if added_for_q >= per_seed or added_sound >= seed_cap:
                         break
 
         # ─── Main recommendation fill ────────────────────────────────────
