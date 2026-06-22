@@ -442,7 +442,7 @@ def _search_candidates(title: str, artist: str, target_seconds: int = 0) -> list
     # Ambient/noise tracks live happily at 30s loops AND 10-hour versions —
     # the upload durations don't correlate with the Spotify track duration.
     # Drop the full-length floor for these so an iframe play of "Pink Noise"
-    # doesn't lose to a 5-min cap. Also disable the ±15s/±35s tightness
+    # doesn't lose to a 5-min cap. Also disable the strict ±15s window
     # since matching duration to Spotify's preview length is meaningless.
     min_full = 25 if ambient else _MIN_SONG_SECONDS
     full_length = [v for v in identity_ok if (meta.get(v) or {}).get("duration", 0) >= min_full]
@@ -459,13 +459,24 @@ def _search_candidates(title: str, artist: str, target_seconds: int = 0) -> list
 
     tier = []
     tier_label = "unknown"
-    if target_seconds > 0 and full_length and not ambient:
-        tight = [v for v in full_length if abs(meta[v]["duration"] - target_seconds) <= 15]
-        loose = [v for v in full_length if abs(meta[v]["duration"] - target_seconds) <= 35]
+
+    # STRICT ±15s — user-mandated for non-ambient songs. We REFUSE to play
+    # a wrong-length upload (no 10-minute extended remixes when the original
+    # is 3:45, no 30s teasers when the original is 4:20). If nothing falls
+    # within ±15s we skip the track — better than playing the wrong version.
+    if target_seconds > 0 and not ambient:
+        tight = [v for v in identity_ok
+                 if abs((meta.get(v) or {}).get("duration", 0) - target_seconds) <= 15]
         if tight:
             tier, tier_label = tight, "tight ±15s"
-        elif loose:
-            tier, tier_label = loose, "loose ±35s"
+        else:
+            logger.info(
+                f"[YOUTUBE] no ±15s match for {title!r} / {artist!r} — "
+                f"refusing wrong-length playback"
+            )
+            return []
+
+    # Ambient / no-duration-target → fall back to any full-length identity match.
     if not tier and full_length:
         tier, tier_label = full_length, ("ambient pool" if ambient else "full-length / no duration target")
 

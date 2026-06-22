@@ -106,10 +106,37 @@ const usePlayerStore = create((set, get) => ({
   },
 
   // Replace the whole queue and start playing at startIndex.
+  // Fast-path: if the incoming tracks match the current queue (same set of
+  // spotifyUrls in the same order), just JUMP to startIndex without rebuilding
+  // the queue — that preserves the resolved videoIds we already cached, so
+  // clicking between tracks in the same playlist doesn't pay a re-resolve cost
+  // for every previously-played track.
   playList: (tracks, startIndex = 0) => {
-    const q = (tracks || []).map(toTrack);
-    if (!q.length) return;
-    set({ queue: q, currentIndex: Math.min(startIndex, q.length - 1), isPlaying: true, minimized: false });
+    const incoming = tracks || [];
+    if (!incoming.length) return;
+    set((s) => {
+      const sameQueue =
+        s.queue.length === incoming.length &&
+        incoming.every((t, i) => {
+          const a = t && t.spotifyUrl;
+          const b = s.queue[i] && s.queue[i].spotifyUrl;
+          return a && b && a === b;
+        });
+      if (sameQueue) {
+        return {
+          currentIndex: Math.max(0, Math.min(startIndex, s.queue.length - 1)),
+          isPlaying: true,
+          minimized: false,
+        };
+      }
+      const q = incoming.map(toTrack);
+      return {
+        queue: q,
+        currentIndex: Math.max(0, Math.min(startIndex, q.length - 1)),
+        isPlaying: true,
+        minimized: false,
+      };
+    });
     _sync(get());
   },
 
