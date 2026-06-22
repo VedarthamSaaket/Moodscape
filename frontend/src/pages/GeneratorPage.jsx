@@ -418,6 +418,7 @@ export default function GeneratorPage() {
   const pinnedTracks      = useQuizStore((s) => s.pinnedTracks);
   const clearPinnedTracks = useQuizStore((s) => s.clearPinnedTracks);
   const playNow           = usePlayerStore((s) => s.playNow);
+  const playList          = usePlayerStore((s) => s.playList);
   const [styleBanner, setStyleBanner] = useState(null);
   const [styleContext, setStyleContext] = useState(null);
 
@@ -851,7 +852,18 @@ export default function GeneratorPage() {
                   <button
                     type="button"
                     className="gen-track-play"
-                    onClick={() => playNow({ title, artist, albumArt, spotifyUrl })}
+                    onClick={(e) => {
+                      // Stop the click from bubbling to the surrounding <a>
+                      // (which would also open Spotify in a new tab).
+                      e.preventDefault();
+                      e.stopPropagation();
+                      // Load the ENTIRE visible playlist as the player queue,
+                      // starting at this track's index. Without this, only
+                      // the clicked track lands in the queue, so clicking a
+                      // different row afterwards (or pressing ⏭) does nothing
+                      // useful — the queue had nowhere to advance to.
+                      playList(playlist, i);
+                    }}
                     title="Play in app"
                     aria-label={`Play ${title}`}
                   >
