@@ -324,6 +324,18 @@ export default function GlobalPlayer() {
         sendTelemetry('skip', prev, { elapsedMs });
       }
     }
+    // Hard-stop the previous track BEFORE any async resolve work — without
+    // this, the iframe keeps playing the old audio for the duration of the
+    // /api/youtube/resolve fetch (or the cached-id round-trip), then
+    // abruptly switches. We want immediate silence on a deliberate track
+    // change, with the new track easing in once it's ready.
+    if (prev && current && prev.id !== current.id) {
+      const p = playerRef.current;
+      try { p && p.stopVideo && p.stopVideo(); } catch { /* ignore */ }
+      loadedVideoRef.current = null;        // force loadVideoById on the new pick
+      setProgress({ cur: 0, dur: 0 });      // bar resets immediately, no leftover elapsed
+    }
+
     prevTrackRef.current = current;
     playEventSentRef.current = null;     // arm "play" telemetry for the new track
 
