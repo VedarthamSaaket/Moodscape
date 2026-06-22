@@ -215,22 +215,68 @@ function NoteBeamed({ scale = 1, fill }) {
   );
 }
 
-function MusicNotes() {
-  const notes = [
-    // ── Top edge ─────────────────────────────────────────────
-    { kind: 'single', x: 13, y: 14, scale: 0.32, side: 'up',    variant: 'a', delay: '0s'   },
-    { kind: 'beamed', x: 22, y: 15, scale: 0.50, side: 'up',    variant: 'b', delay: '0.6s' },
-    { kind: 'single', x: 30, y: 14, scale: 0.26, side: 'up',    variant: 'c', delay: '1.2s' },
-    { kind: 'single', x: 38, y: 15, scale: 0.42, side: 'up',    variant: 'a', delay: '1.8s' },
-    // ── Right edge ───────────────────────────────────────────
-    { kind: 'single', x: 46, y: 19, scale: 0.28, side: 'right', variant: 'b', delay: '0.3s' },
-    { kind: 'beamed', x: 45, y: 26, scale: 0.56, side: 'right', variant: 'c', delay: '1.0s' },
-    { kind: 'single', x: 46, y: 33, scale: 0.34, side: 'right', variant: 'a', delay: '1.7s' },
-    // ── Left edge ────────────────────────────────────────────
-    { kind: 'single', x: 4,  y: 20, scale: 0.44, side: 'left',  variant: 'c', delay: '0.5s' },
-    { kind: 'single', x: 5,  y: 27, scale: 0.24, side: 'left',  variant: 'a', delay: '1.2s' },
-    { kind: 'beamed', x: 4,  y: 34, scale: 0.48, side: 'left',  variant: 'b', delay: '2.0s' },
+// Tiny seeded PRNG (mulberry32). Used so the note field below is generated
+// ONCE at module load with stable-but-irregular values — the notes must not
+// re-roll their positions on every React repaint (they'd visibly teleport),
+// yet they shouldn't sit on a tidy grid either.
+function mulberry32(seed) {
+  return function () {
+    seed |= 0; seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// The note field — scattered around the WHOLE perimeter (all four edges, so
+// corners get natural overlap), at JITTERED positions and WIDELY varied sizes.
+// The point is imperfection: uneven spacing, mixed sizes from petite to bold,
+// no two trajectories alike. Counts differ per edge so no side mirrors another.
+const NOTE_FIELD = (() => {
+  const rnd   = mulberry32(0x5eed1337);
+  const pick  = (arr) => arr[Math.floor(rnd() * arr.length)];
+  const range = (lo, hi) => lo + rnd() * (hi - lo);
+
+  // Radio silhouette bounds inside the 50×44 viewBox.
+  const L = 3, R = 47, T = 12, B = 40;
+  const variants = ['a', 'b', 'c'];
+
+  // Irregular per-edge counts — deliberately not symmetric.
+  const edges = [
+    { side: 'up',    n: 5 },
+    { side: 'right', n: 4 },
+    { side: 'down',  n: 3 },
+    { side: 'left',  n: 4 },
   ];
+
+  const out = [];
+  edges.forEach(({ side, n }) => {
+    for (let i = 0; i < n; i++) {
+      // Start from an even slot, then jitter HARD so spacing reads uneven.
+      const f = Math.min(0.96, Math.max(0.04, (i + 0.5) / n + range(-0.18, 0.18)));
+      let x, y;
+      if (side === 'up')    { x = L + f * (R - L); y = T + range(-1.5, 2); }
+      if (side === 'down')  { x = L + f * (R - L); y = B + range(-2, 1.5); }
+      if (side === 'left')  { x = L + range(-1.5, 2); y = T + f * (B - T); }
+      if (side === 'right') { x = R + range(-2, 1.5); y = T + f * (B - T); }
+      out.push({
+        side,
+        x: +x.toFixed(2),
+        y: +y.toFixed(2),
+        // Wide, lumpy size band — squaring the roll biases toward small notes
+        // with the occasional bold one, so the wash never looks uniform.
+        scale: +(0.16 + Math.pow(rnd(), 1.7) * 0.62).toFixed(3),
+        kind: rnd() < 0.34 ? 'beamed' : 'single',
+        variant: pick(variants),
+        delay: `${(+range(0, 2.6).toFixed(2))}s`,
+      });
+    }
+  });
+  return out;
+})();
+
+function MusicNotes() {
+  const notes = NOTE_FIELD;
 
   return (
     <g className="pr-notes">

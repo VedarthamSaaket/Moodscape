@@ -93,8 +93,42 @@ export default function GlobalPlayer() {
   const failCountRef   = useRef(0);      // consecutive unplayable tracks (loop guard)
   const altsRef        = useRef(new Map());  // trackId -> [alternate embeddable videoIds]
   const triedRef       = useRef(new Map());  // trackId -> Set of videoIds already failed
+  const confRef        = useRef(new Map());  // trackId -> { score, label } from resolve
+  const playStartRef   = useRef(0);      // ms timestamp PLAYING last fired — drives skip-window classification
+  const playEventSentRef = useRef(null); // trackId of the last "play" telemetry already fired (dedupe)
+  const replayedRef    = useRef(new Set());  // trackIds that have already triggered a "replay" event this session
   const [status, setStatus] = useState(''); // '', 'resolving', 'unavailable'
+  const [confidence, setConfidence] = useState({ score: 0, label: '' }); // for the "best guess" badge
   const [progress, setProgress] = useState({ cur: 0, dur: 0 }); // seconds — for the bar's seek slider
+
+  // ── Telemetry (fire-and-forget) ────────────────────────────────────────────
+  // POST a single playback event. Never awaits, never blocks playback. Skip
+  // threshold (10s): the player decides skip vs natural-next by comparing
+  // elapsed playback time at the moment the user advances. "replay" fires
+  // when the same track is loaded a second time within the session.
+  const SKIP_CUTOFF_MS = 10_000;
+  const sendTelemetry = useCallback((eventType, track, extra = {}) => {
+    if (!track) return;
+    try {
+      const appToken = localStorage.getItem('authToken') || '';
+      const conf = confRef.current.get(track.id) || {};
+      fetch(`${API_BASE}/api/telemetry/event`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Session-Token': appToken },
+        body: JSON.stringify({
+          event_type:       eventType,
+          track_id:         track.id || '',
+          title:            track.title || '',
+          artist:           track.artist || '',
+          video_id:         track.videoId || '',
+          score:            conf.score || 0,
+          confidence_label: conf.label || '',
+          elapsed_ms:       extra.elapsedMs || 0,
+          timestamp:        Date.now(),
+        }),
+      }).catch(() => { /* telemetry never blocks playback */ });
+    } catch { /* ignore */ }
+  }, []);
 
   const current =
     currentIndex >= 0 && currentIndex < queue.length ? queue[currentIndex] : null;
@@ -173,12 +207,28 @@ export default function GlobalPlayer() {
           onStateChange: (e) => {
             const S = window.YT && window.YT.PlayerState;
             if (!S) return;
-            if (e.data === S.ENDED) next();
+            if (e.data === S.ENDED) {
+              const st0 = usePlayerStore.getState();
+              const ended = st0.queue[st0.currentIndex];
+              if (ended) sendTelemetry('complete', ended, { elapsedMs: Date.now() - playStartRef.current });
+              next();
+            }
             else if (e.data === S.PLAYING) {
               failCountRef.current = 0;
               transitioningRef.current = false;
               stopRadioIfOn();
               setIsPlaying(true);
+              // Fire telemetry once per (track, play-start). If this track id
+              // already played once this session, classify as a replay instead.
+              const st1 = usePlayerStore.getState();
+              const t = st1.queue[st1.currentIndex];
+              if (t && playEventSentRef.current !== t.id) {
+                playEventSentRef.current = t.id;
+                playStartRef.current = Date.now();
+                const isReplay = replayedRef.current.has(t.id);
+                replayedRef.current.add(t.id);
+                sendTelemetry(isReplay ? 'replay' : 'play', t);
+              }
             }
             else if (e.data === S.PAUSED) {
               // YT emits a spurious PAUSED tick when swapping videos via
@@ -233,9 +283,20 @@ export default function GlobalPlayer() {
           const data = await res.json();
           videoId = data.videoId || null;
           if (Array.isArray(data.candidates)) altsRef.current.set(current.id, data.candidates);
+          // Stash the resolver's confidence on the track + drive the badge.
+          // Cached responses come back with the same shape so the UI is stable
+          // whether we hit the cache or just searched.
+          const conf = { score: Number(data.confidence) || 0, label: data.confidenceLabel || '' };
+          confRef.current.set(current.id, conf);
+          setConfidence(conf);
           if (videoId) setVideoId(current.id, videoId);
         }
       } catch { /* network down, fall through to unavailable */ }
+    } else {
+      // Re-using a cached videoId (page reload / queue hydrate); surface
+      // whatever confidence we already knew, blanked otherwise.
+      const conf = confRef.current.get(current.id) || { score: 0, label: '' };
+      setConfidence(conf);
     }
 
     if (!videoId) { setStatus('unavailable'); skipUnplayable(); return; }
@@ -251,7 +312,21 @@ export default function GlobalPlayer() {
     }
   }, [current, isReady, setVideoId, skipUnplayable]);
 
+  // Track the previous current-track so we can classify a track-swap as a skip
+  // (user advanced before SKIP_CUTOFF_MS elapsed). One ref, no extra state.
+  const prevTrackRef = useRef(null);
   useEffect(() => {
+    const prev = prevTrackRef.current;
+    if (prev && prev.id && current && prev.id !== current.id) {
+      // Outgoing track was swapped — was it within the skip window?
+      const elapsedMs = playStartRef.current ? Date.now() - playStartRef.current : 0;
+      if (playStartRef.current && elapsedMs > 0 && elapsedMs < SKIP_CUTOFF_MS) {
+        sendTelemetry('skip', prev, { elapsedMs });
+      }
+    }
+    prevTrackRef.current = current;
+    playEventSentRef.current = null;     // arm "play" telemetry for the new track
+
     clearTimeout(skipTimerRef.current); // drop any stale skip from a prior error
     transitioningRef.current = true;    // swallow YT's transient PAUSED on video swap
     ensureAndLoad();
@@ -346,7 +421,17 @@ export default function GlobalPlayer() {
               <TrackArt seed={(current.title || '') + '·' + (current.artist || '')} />
             </div>
             <div className="gp-text">
-              <span className="gp-title" title={current.title}>{current.title}</span>
+              <span className="gp-title" title={current.title}>
+                {current.title}
+                {confidence.label === 'low' && (
+                  <span
+                    className="gp-conf-badge"
+                    title={`Best-effort match (confidence ${(confidence.score * 100).toFixed(0)}%) — if this isn't right, hit ⏭`}
+                  >
+                    best guess
+                  </span>
+                )}
+              </span>
               <span className="gp-artist" title={current.artist}>
                 {status === 'resolving' ? 'finding audio…'
                   : status === 'unavailable' ? "couldn't load, skipping…"

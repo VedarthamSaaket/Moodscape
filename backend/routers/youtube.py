@@ -13,10 +13,16 @@ Caching (including negative results) keeps us well under that for normal use.
 Auth: X-Session-Token (lax) — same posture as the other playback endpoints.
 Schema is created idempotently at first use; no separate migration step.
 """
+import json
+import os
 import re
+import time
+import unicodedata
+from typing import Optional
 
 import requests
 from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel, Field
 
 from security import require_session_token, sanitise_search_token
 from database import get_db_connection, release_db_connection
@@ -49,6 +55,7 @@ def _ensure_schema() -> None:
                     cache_key   TEXT        PRIMARY KEY,
                     video_id    TEXT        NOT NULL DEFAULT '',
                     video_ids   TEXT        NOT NULL DEFAULT '',
+                    confidence  REAL        NOT NULL DEFAULT 0.0,
                     title       TEXT,
                     artist      TEXT,
                     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -58,6 +65,11 @@ def _ensure_schema() -> None:
             # Older deployments created the table without video_ids — add it.
             cur.execute(
                 "ALTER TABLE youtube_resolutions ADD COLUMN IF NOT EXISTS video_ids TEXT NOT NULL DEFAULT ''"
+            )
+            # Confidence column added at v3 of the matching layer; idempotent
+            # for fresh schemas (NOT EXISTS) and adds the column for upgrades.
+            cur.execute(
+                "ALTER TABLE youtube_resolutions ADD COLUMN IF NOT EXISTS confidence REAL NOT NULL DEFAULT 0.0"
             )
             conn.commit()
         _SCHEMA_INITIALISED = True
@@ -79,41 +91,45 @@ def _cache_key(title: str, artist: str) -> str:
 
 
 def _cache_get(key: str):
-    """Return (found: bool, candidates: list[str]).
+    """Return (found: bool, candidates: list[str], confidence: float).
 
-    Returns the full ranked candidate list. A row with no usable ids (a
-    previously cached miss) is treated as NOT found, so a now-working API key
-    gets a fresh chance instead of being stuck on a poisoned negative entry.
+    Returns the full ranked candidate list AND the confidence we computed at
+    cache-write time. A row with no usable ids (a previously cached miss) is
+    treated as NOT found, so a now-working API key gets a fresh chance instead
+    of being stuck on a poisoned negative entry.
     """
     conn = get_db_connection()
     if not conn:
-        return False, []
+        return False, [], 0.0
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT video_id, video_ids FROM youtube_resolutions WHERE cache_key = %s",
+                "SELECT video_id, video_ids, confidence FROM youtube_resolutions WHERE cache_key = %s",
                 (key,),
             )
             row = cur.fetchone()
             if row is None:
-                return False, []
+                return False, [], 0.0
             primary, joined = row[0] or "", row[1] or ""
+            confidence = float(row[2] or 0.0)
             ids = [v for v in joined.split(",") if v]
             if not ids and primary:        # row predates video_ids column
                 ids = [primary]
             if not ids:
-                return False, []
-            return True, ids
+                return False, [], 0.0
+            return True, ids, confidence
     except Exception as exc:
         logger.warning(f"[YOUTUBE] cache_get error: {exc}")
-        return False, []
+        return False, [], 0.0
     finally:
         release_db_connection(conn)
 
 
-def _cache_put(key: str, candidates: list, title: str, artist: str) -> None:
-    """Cache the full ranked candidate list. video_id keeps the primary pick for
-    back-compat; video_ids holds the whole list so a cache hit has fallbacks."""
+def _cache_put(key: str, candidates: list, title: str, artist: str,
+                confidence: float = 0.0) -> None:
+    """Cache the full ranked candidate list AND the confidence used at write
+    time. video_id keeps the primary pick for back-compat; video_ids holds the
+    whole list so a cache hit has fallbacks."""
     conn = get_db_connection()
     if not conn:
         return
@@ -123,12 +139,14 @@ def _cache_put(key: str, candidates: list, title: str, artist: str) -> None:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO youtube_resolutions (cache_key, video_id, video_ids, title, artist)
-                VALUES (%s, %s, %s, %s, %s)
+                INSERT INTO youtube_resolutions (cache_key, video_id, video_ids, confidence, title, artist)
+                VALUES (%s, %s, %s, %s, %s, %s)
                 ON CONFLICT (cache_key) DO UPDATE
-                  SET video_id = EXCLUDED.video_id, video_ids = EXCLUDED.video_ids
+                  SET video_id   = EXCLUDED.video_id,
+                      video_ids  = EXCLUDED.video_ids,
+                      confidence = EXCLUDED.confidence
                 """,
-                (key, primary, joined, title[:300], artist[:300]),
+                (key, primary, joined, float(confidence), title[:300], artist[:300]),
             )
             conn.commit()
     except Exception as exc:
@@ -149,18 +167,6 @@ def _iso_to_sec(s: str) -> int:
         return 0
     h, mi, se = m.groups()
     return int(h or 0) * 3600 + int(mi or 0) * 60 + int(se or 0)
-
-
-# Anything shorter than this is treated as a Short / snippet / preview, not a
-# real upload of the song. 75s lets a few genuinely-short songs through while
-# killing the typical 30-60s preview/Short flood.
-_MIN_SONG_SECONDS = 75
-
-# Last-resort fallback floor. If literally NO full-length identity match
-# exists for a song (artist only ever posted teaser clips), we allow
-# identity-matching uploads down to this length so the user at least hears
-# the snippet instead of getting "couldn't load, skipping".
-_SNIPPET_FALLBACK_SECONDS = 25
 
 
 def _video_meta(video_ids: list) -> dict:
@@ -252,6 +258,90 @@ def _tokens(s: str) -> list:
     return [t for t in _normalize(s).split() if t and t not in _STOPWORDS]
 
 
+# ── Romanization / phonetic normalization ──────────────────────────────────
+# Indian-language catalog has heavy spelling variance once romanized:
+# "Naatu Naatu" / "Natu Natu", "Saami Saami", "Kaavaalaa" / "Kavala". Plus
+# diacritics: "Beyoncé" / "Beyonce", "Sigur Rós" / "Sigur Ros". These are
+# CHEAP normalizations applied BEFORE any fuzzy-distance work — most of
+# the romanization-variance hits collapse to exact matches at this layer
+# and never need Levenshtein at all.
+#
+#   1. Unicode NFKD then drop combining marks  → diacritic folding
+#   2. Collapse runs of identical letters (≥2 → 1) → "naatu"→"natu",
+#      "saami"→"sami", "kaavaalaa"→"kavala". Applied symmetrically so
+#      both sides reduce to the same form regardless of which spelling
+#      the user/uploader chose.
+
+def _fold_token(tok: str) -> str:
+    """Diacritic-fold + collapse doubled letters. Pure ASCII out."""
+    if not tok:
+        return ""
+    # NFKD splits 'é' → 'e' + combining-acute; drop the combining marks.
+    nfkd = unicodedata.normalize("NFKD", tok)
+    ascii_ = "".join(ch for ch in nfkd if not unicodedata.combining(ch))
+    ascii_ = ascii_.lower()
+    # Collapse runs of identical chars (length ≥ 2) to a single char.
+    return re.sub(r"(.)\1+", r"\1", ascii_)
+
+
+# ── Levenshtein edit-distance (pure Python DP, ~10 lines) ──────────────────
+# Used only as a fuzzy fallback when folded-exact match fails — typo paths
+# ("Bohmian"/"Bohemian"), partial romanization survivors, minor spellings.
+# Threshold: edit_distance / max(len) <= 0.35 — i.e. a 6-char token can
+# differ by 2 chars and still match; a 10-char token by 3; etc.
+
+def _lev(a: str, b: str) -> int:
+    """Standard Wagner–Fischer Levenshtein distance."""
+    if a == b:
+        return 0
+    if not a:
+        return len(b)
+    if not b:
+        return len(a)
+    # Row-by-row DP, O(min(len(a), len(b))) space.
+    if len(a) < len(b):
+        a, b = b, a
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i] + [0] * len(b)
+        for j, cb in enumerate(b, 1):
+            cur[j] = min(
+                prev[j] + 1,           # deletion
+                cur[j - 1] + 1,        # insertion
+                prev[j - 1] + (0 if ca == cb else 1),  # substitution
+            )
+        prev = cur
+    return prev[-1]
+
+
+# Distance cutoff and weight discount for the fuzzy fallback. Both are
+# applied AFTER fold-exact has had its shot, so romanization-variance hits
+# already exact-matched and never reach this branch.
+_FUZZY_CUTOFF = 0.35
+_FUZZY_WEIGHT = 0.75
+
+
+def _fuzzy_hit(tok: str, hay_set: set, hay_squashed: str) -> bool:
+    """True if `tok` is within the fuzzy cutoff of any token in `hay_set`,
+    or appears as a near-substring in `hay_squashed`. Cheap short-circuit
+    skips tokens of wildly different length up-front."""
+    if not tok:
+        return False
+    for h in hay_set:
+        if not h:
+            continue
+        lmax = max(len(tok), len(h))
+        if abs(len(tok) - len(h)) / lmax > _FUZZY_CUTOFF:
+            continue                                  # cheap length filter
+        if _lev(tok, h) / lmax <= _FUZZY_CUTOFF:
+            return True
+    # Substring sweep against the squashed channel string for cases where
+    # the YouTube side concatenates words ("BeyonceVEVO", "ArijitOfficial").
+    if len(tok) >= 4 and tok in hay_squashed:
+        return True
+    return False
+
+
 def _required_versions(spotify_title: str) -> set:
     """If the Spotify track itself is a Remix/Acoustic/Live/etc. version, the
     YouTube match MUST also be that version. Returns the set of tags found."""
@@ -259,68 +349,190 @@ def _required_versions(spotify_title: str) -> set:
     return {v for v in _VERSION_TAGS if v in low}
 
 
-def _is_identity_match(yt_title: str, yt_channel: str,
-                       want_title_tokens: list, want_artist_tokens: list,
-                       required_versions: set, relax_artist: bool = False) -> bool:
-    """True iff this YouTube video is actually the song the user asked for.
+# ── Confidence scoring: replaces the old binary identity gate ────────────────
+# The old code was a hard AND-gate: a candidate had to clear an 80% title
+# threshold AND contain the artist AND survive a strict duration window, or it
+# was thrown away — which is exactly what produced "couldn't load, skipping".
+#
+# Instead, every candidate now earns a CONTINUOUS 0..1 confidence from several
+# weighted signals, and the caller accepts the best one as long as it clears a
+# *relative* floor. A right-title / wrong-length upload therefore still plays.
+#
+# Nothing here is a tuned per-song constant: title tokens are weighted by their
+# own length (distinctive words count more), duration closeness is measured
+# RELATIVE to the song's own length, and the acceptance floor is derived from
+# how much of the title we covered — never a fixed number of seconds.
 
-    Matching tolerates channels that concatenate words ("WendyWangVEVO",
-    "JonasBrothersVEVO", "RihannaForVEVO") by using substring containment on
-    the channel string in addition to exact-word membership on the title.
+# Relative weights of the three core signals. Title dominates (strongest "is
+# this the right song" evidence); artist confirms; duration only nudges the
+# ranking and never gates.
+_W_TITLE  = 0.60
+_W_ARTIST = 0.25
+_W_DUR    = 0.15
 
-    `relax_artist=True` skips the artist-must-appear gate — used for
-    ambient/noise/nature-sound tracks where the Spotify "artist" is a
-    label ("Nature Sounds", "Sleep Music Inc") that rarely matches the
-    uploader name on YouTube. For these tracks the title content
-    (e.g. "Pink Noise 10 Hours") IS the identity.
+# Channel substrings that mark an official master upload — a weak positive prior.
+_OFFICIAL_CHANNEL_TOKENS = ("vevo", "official", "topic", "records")
+
+
+# ── Channel reputation map ─────────────────────────────────────────────────
+# Tie-breaker multiplier applied AFTER the base score. Channel substrings
+# that empirically produce a particular embeddability / cleanliness profile
+# get nudged up or down. The exact value range stays close to 1.0 so this
+# layer never overrides the title/artist/duration evidence — it only sorts
+# already-comparable candidates.
+#
+# Notes on individual values:
+#   "vevo"     — the spec calls this hard penalty (0.10) because so many
+#                VEVO uploads are non-embeddable. The risk is tanking the
+#                legitimate master when it IS embeddable. The player falls
+#                through dead videos already; we trade a small chance of
+#                missing an embeddable VEVO master for a much larger gain
+#                of skipping the dead ones.
+#   "- topic"  — Spotify's auto-mirror, almost always the exact same audio
+#                that's in Spotify but embeddability is mixed.
+#   "official" — fan-named "X Official" channels are weaker than VEVO but
+#                generally clean uploads of the original audio.
+#   default    — unknown / indie channels often allow embed; small boost.
+_CHANNEL_REPUTATION = (
+    ("vevo",     0.10),   # very rarely embeddable in iframe — heavily penalise
+    ("- topic",  0.85),   # auto-mirror; mixed embed status
+    ("official", 0.95),   # mild trust
+)
+_CHANNEL_BONUS_UNKNOWN = 1.02
+
+
+def _channel_reputation_multiplier(channel_lower: str) -> float:
+    """Return the rep multiplier for a channel title. First substring match
+    wins; falls back to the unknown-channel bonus."""
+    if not channel_lower:
+        return _CHANNEL_BONUS_UNKNOWN
+    for needle, mult in _CHANNEL_REPUTATION:
+        if needle in channel_lower:
+            return mult
+    return _CHANNEL_BONUS_UNKNOWN
+
+
+def _weighted_coverage(want_tokens: list, hay_set: set, hay_squashed: str) -> float:
+    """Fraction of the wanted tokens present, each weighted by its own length
+    so distinctive words ('bohemian') count more than short glue ('you').
+    Returns 0..1. Empty want-set → 1.0 (nothing left to satisfy).
+
+    Three-tier matching applied per token, in order:
+      a) RAW exact      — tok in hay_set / hay_squashed → full weight.
+      b) FOLDED exact   — diacritic-fold + collapse-doubles on both sides,
+                          then exact compare → full weight. Catches romaniz-
+                          ation variance ("Naatu"/"Natu"), diacritics
+                          ("Beyoncé"/"Beyonce") at zero distance.
+      c) FUZZY fallback — Levenshtein on folded forms, dist/maxlen ≤ 0.35
+                          → 0.75× weight. Catches typos and minor spelling
+                          drift; the discount keeps a clean exact-token
+                          candidate ranked above a fuzzy one.
     """
-    if not want_title_tokens:
-        return False
-    t_low = _normalize(yt_title)
-    c_low = _normalize(yt_channel)
-    t_set = set(t_low.split())
-    c_squashed = c_low.replace(" ", "")           # collapse spaces for substring hits
+    if not want_tokens:
+        return 1.0
 
-    def in_title_or_channel(tok: str) -> bool:
-        return tok in t_set or tok in c_squashed
+    # Build folded views of the haystack once per candidate.
+    folded_hay_set = {_fold_token(h) for h in hay_set if h}
+    folded_hay_squashed = _fold_token(hay_squashed)
 
-    # Title-token coverage — most title tokens must appear (≥80%).
-    matched = sum(1 for w in want_title_tokens if in_title_or_channel(w))
-    if matched < max(1, int(round(0.8 * len(want_title_tokens)))):
-        return False
+    total = have = 0.0
+    for tok in want_tokens:
+        w = len(tok)
+        total += w
+        if tok in hay_set or tok in hay_squashed:
+            have += w
+            continue
+        ft = _fold_token(tok)
+        if ft and (ft in folded_hay_set or (len(ft) >= 3 and ft in folded_hay_squashed)):
+            have += w
+            continue
+        if ft and _fuzzy_hit(ft, folded_hay_set, folded_hay_squashed):
+            have += w * _FUZZY_WEIGHT
+    return (have / total) if total else 0.0
 
-    # Artist gate — single-token or first-token match counts. Skipped for
-    # ambient/noise tracks where the Spotify "artist" rarely matches the
-    # YouTube uploader for the same content.
-    if not relax_artist and want_artist_tokens and not any(in_title_or_channel(a) for a in want_artist_tokens):
-        return False
 
-    # Banned content gate — but allow if the Spotify track itself uses that word.
-    bad = _BAD.search(yt_title)
+def _match_score(meta: dict, want_title_tokens: list, want_artist_tokens: list,
+                 required_versions: set, target_seconds: int, rank: int,
+                 ambient: bool = False) -> tuple:
+    """Continuous confidence that `meta` IS the wanted song.
+
+    Returns (score, title_cov). `title_cov` is surfaced separately so the
+    caller's acceptance floor can key off the single most trustworthy signal
+    (how much of the title matched) rather than the blended score.
+
+    Channel matching tolerates concatenated names ("JonasBrothersVEVO") via
+    substring containment, same as the old gate.
+    """
+    t_low      = _normalize(meta.get("title", ""))
+    c_low      = _normalize(meta.get("channel", ""))
+    t_set      = set(t_low.split())
+    c_squashed = c_low.replace(" ", "")
+
+    title_cov  = _weighted_coverage(want_title_tokens, t_set, c_squashed)
+    artist_cov = _weighted_coverage(want_artist_tokens, t_set, c_squashed)
+
+    # Duration proximity — RELATIVE to the song's own length, so a 12s gap on a
+    # 3-min song scores the same as a 12s gap would, instead of being judged
+    # against a fixed ±15s window. Unknown length → neutral (never penalised).
+    # For ambient/noise tracks (pink noise, rain, ASMR) the upload duration
+    # varies wildly between a 30s loop and a 10-hour version — duration is
+    # meaningless as evidence so we hold it neutral.
+    dur = meta.get("duration", 0) or 0
+    if ambient:
+        dur_score = 0.5
+    elif target_seconds > 0 and dur > 0:
+        rel = abs(dur - target_seconds) / max(target_seconds, 1)
+        dur_score = 1.0 / (1.0 + rel * 3.0)     # rel 0→1.0, .33→.5, 1.0→.25
+    else:
+        dur_score = 0.5
+
+    # For ambient tracks the Spotify "artist" is usually a label
+    # ("Nature Sounds", "Sleep Music Inc") that almost never matches the
+    # YouTube uploader. Redistribute artist's weight onto title — the title
+    # IS the identity for these ("Pink Noise 10 Hours").
+    if ambient:
+        score = ((_W_TITLE + _W_ARTIST) * title_cov +
+                 _W_DUR * dur_score)
+    else:
+        score = (_W_TITLE * title_cov +
+                 _W_ARTIST * artist_cov +
+                 _W_DUR * dur_score)
+
+    # ── Multiplicative penalties (shape ranking, rarely zero a candidate) ────
+    # Derivative content (cover/karaoke/nightcore…) unless the Spotify track
+    # itself signalled that word. Heavy discount, NOT elimination — a clean
+    # upload always outranks a cover, but a cover of the RIGHT song still beats
+    # silence when it's genuinely all that exists.
+    bad = _BAD.search(meta.get("title", ""))
     if bad:
-        bad_word = bad.group(0).lower()
+        bad_word     = bad.group(0).lower()
         bad_squashed = re.sub(r"[\s-]+", "", bad_word)
-        spotify_low = _normalize(" ".join(want_title_tokens))
-        allow = (bad_squashed in {re.sub(r"[\s-]+", "", v) for v in required_versions}) or \
-                (bad_word in spotify_low)
-        if not allow:
-            return False
+        spotify_low  = _normalize(" ".join(want_title_tokens))
+        allowed = (bad_squashed in {re.sub(r"[\s-]+", "", v) for v in required_versions}) or \
+                  (bad_word in spotify_low)
+        if not allowed:
+            score *= 0.35
 
-    # Required-version gate.
+    # Required-version mismatch (Spotify said "Acoustic", this upload isn't).
     for v in required_versions:
         if v not in t_low:
-            return False
+            score *= 0.6
 
-    return True
+    # ── Additive nudges (bounded tie-breakers) ──────────────────────────────
+    if meta.get("embeddable"):
+        score += 0.04                            # plays in-iframe without a fight
+    if any(tok in c_squashed for tok in _OFFICIAL_CHANNEL_TOKENS):
+        score += 0.04                            # official master, almost certainly right
+    score += max(0.0, 0.03 - rank * 0.002)       # earlier search hits = weak relevance prior
 
+    # ── Channel reputation multiplier ────────────────────────────────────────
+    # Final tie-breaker — applied after additive nudges so it scales the
+    # already-shaped score. Most channels land near 1.02; VEVO/"- topic"
+    # bring known-bad embed profiles down. See _CHANNEL_REPUTATION for the
+    # rationale on each.
+    score *= _channel_reputation_multiplier(c_low)
 
-def _embeddable_ids(video_ids: list) -> list:
-    """Wrapper kept for the secondary search merge path. Returns embeddable
-    full-length (>= _MIN_SONG_SECONDS) ids, preserving rank."""
-    meta = _video_meta(video_ids)
-    return [v for v in video_ids
-            if (meta.get(v) or {}).get("embeddable")
-            and (meta.get(v) or {}).get("duration", 0) >= _MIN_SONG_SECONDS]
+    return max(0.0, min(1.0, score)), title_cov
 
 
 def _raw_search_ids(query: str, max_results: int = 25, music_only: bool = False) -> list:
@@ -358,56 +570,32 @@ def _raw_search_ids(query: str, max_results: int = 25, music_only: bool = False)
         return []
 
 
-def _search_candidates(title: str, artist: str, target_seconds: int = 0) -> list:  # noqa: C901
-    # Ambient/noise/nature tracks need looser rules: artist matching is mostly
-    # meaningless (the Spotify "artist" is usually a label like "Sleep Sounds")
-    # and the actual upload duration varies wildly (30s loop ↔ 10-hour version).
-    ambient = is_sound_track(title, artist)
-    """Resolve "<title> <artist>" to videoIds that ACTUALLY ARE that song.
+# Acceptance floor — only refusal path is "this is a DIFFERENT song", which
+# shows up as the title barely overlapping. Half of the title's own weighted
+# tokens is the cutoff. Scales per song (1-word titles demand the word;
+# 6-word titles tolerate a missing minor word) and never tunes per-song.
+_TITLE_MAJORITY = 0.5
 
-    Pipeline:
-      1. Cast a WIDE net — 6 search variants spanning the most reliable
-         discovery patterns for songs on YouTube:
-           a. primary       "<title> <artist>"
-           b. reversed      "<artist> - <title>"             (matches official artist channels)
-           c. audio variant "<title> <artist> audio"         (re-uploads)
-           d. lyrics        "<title> <artist> lyrics"        (lyric channels — full songs under fair use)
-           e. music-only    "<title> <artist>" filtered to category 10 (Music) — strips reactions/tutorials at source
-           f. topic upload  "<artist> <title> topic"         (Spotify auto-mirror "Artist - Topic" channels)
-      2. Dedupe → one videos.list call (1 quota unit) returns embeddable +
-         duration + title + channel for every candidate.
-      3. Apply strict identity gate (title/artist/version/banned-words).
-      4. Duration gate:
-           - Tight:   ±15s of Spotify length     → ideal pool
-           - Loose:   ±35s                       → fallback
-           - Snippet: identity-matching uploads
-                      >= _SNIPPET_FALLBACK_SECONDS, used ONLY if no
-                      full-length identity match exists. Lets the user hear
-                      the song instead of getting "skipping" when the artist
-                      only posts teasers.
-      5. Within the chosen tier: embeddable first, then closest-by-duration.
 
-    Quota budget: up to 6 searches (600u) + 1 videos.list (1u) ≈ 601u per
-    miss. Cache makes hits free.
+def _run_search_pipeline(title: str, artist: str, target_seconds: int,
+                          queries: list, ambient: bool = False) -> tuple:
+    """Inner pipeline shared by the primary call and the second-pass retry.
+
+    Takes a list of (query, music_only) tuples, runs them, scores the union
+    of returned ids against the wanted title/artist/duration, and returns
+    (accepted_ids, best_score, best_title_cov). Empty tuple-of-zeros on
+    total miss (no ids at all). `ambient=True` propagates the relaxed scoring
+    posture (artist neutralised, duration neutral) down to `_match_score`.
     """
     want_title_tokens  = _tokens(_clean_title(title))
     want_artist_tokens = _tokens(artist)
     required_versions  = _required_versions(title)
 
     if not want_title_tokens:
-        return []
+        return [], 0.0, 0.0
 
-    queries = [
-        (f"{title} {artist}".strip(),                False),
-        (f"{artist} - {title}".strip(" -"),          False),
-        (f"{title} {artist} audio".strip(),          False),
-        (f"{title} {artist} lyrics".strip(),         False),
-        (f"{title} {artist} official audio".strip(), False),
-        (f"{artist} {title} topic".strip(),          False),
-    ]
-
-    ids = []
-    seen = set()
+    ids: list = []
+    seen: set = set()
     for q, music_only in queries:
         if not q:
             continue
@@ -418,98 +606,145 @@ def _search_candidates(title: str, artist: str, target_seconds: int = 0) -> list
                 ids.append(vid)
 
     if not ids:
-        return []
+        return [], 0.0, 0.0
 
     meta = _video_meta(ids)
-
-    # Stage 1: identity match — title tokens, artist tokens, version, banned words.
-    identity_ok = []
-    for vid in ids:
-        m = meta.get(vid) or {}
-        if _is_identity_match(m.get("title", ""), m.get("channel", ""),
-                              want_title_tokens, want_artist_tokens,
-                              required_versions, relax_artist=ambient):
-            identity_ok.append(vid)
-
-    if not identity_ok:
-        logger.info(
-            f"[YOUTUBE] no identity match across {len(ids)} candidates for "
-            f"{title!r} / {artist!r} — refusing to play wrong song"
+    scored = []
+    for r, vid in enumerate(ids):
+        m = meta.get(vid)
+        if not m:
+            continue
+        s, tcov = _match_score(
+            m, want_title_tokens, want_artist_tokens,
+            required_versions, target_seconds, r,
+            ambient=ambient,
         )
-        return []
+        scored.append((s, tcov, vid))
 
-    # Stage 2: duration tiers.
-    # Ambient/noise tracks live happily at 30s loops AND 10-hour versions —
-    # the upload durations don't correlate with the Spotify track duration.
-    # Drop the full-length floor for these so an iframe play of "Pink Noise"
-    # doesn't lose to a 5-min cap. Also disable the strict ±15s window
-    # since matching duration to Spotify's preview length is meaningless.
-    min_full = 25 if ambient else _MIN_SONG_SECONDS
-    full_length = [v for v in identity_ok if (meta.get(v) or {}).get("duration", 0) >= min_full]
+    if not scored:
+        return [], 0.0, 0.0
 
-    def by_score(vid: str):
-        m = meta.get(vid) or {}
-        dur = m.get("duration", 0)
-        delta = abs(dur - target_seconds) if (target_seconds > 0 and not ambient) else 0
-        embed_bonus = 0 if m.get("embeddable") else 1
-        # For ambient tracks, prefer LONGER uploads (a 1-hour pink noise is
-        # better than a 30s loop). For songs, prefer closeness-to-target.
-        ambient_pref = -(m.get("duration", 0)) if ambient else 0
-        return (delta, ambient_pref, embed_bonus, ids.index(vid))
+    scored.sort(key=lambda x: x[0], reverse=True)
+    best_score, best_tcov, _ = scored[0]
+    accepted = [vid for s, tcov, vid in scored if tcov >= _TITLE_MAJORITY]
+    if not accepted:
+        accepted = [scored[0][2]]
+    return accepted[:20], best_score, best_tcov
 
-    tier = []
-    tier_label = "unknown"
 
-    # STRICT ±15s — user-mandated for non-ambient songs. We REFUSE to play
-    # a wrong-length upload (no 10-minute extended remixes when the original
-    # is 3:45, no 30s teasers when the original is 4:20). If nothing falls
-    # within ±15s we skip the track — better than playing the wrong version.
-    if target_seconds > 0 and not ambient:
-        tight = [v for v in identity_ok
-                 if abs((meta.get(v) or {}).get("duration", 0) - target_seconds) <= 15]
-        if tight:
-            tier, tier_label = tight, "tight ±15s"
-        else:
-            logger.info(
-                f"[YOUTUBE] no ±15s match for {title!r} / {artist!r} — "
-                f"refusing wrong-length playback"
-            )
-            return []
+def _search_candidates(title: str, artist: str, target_seconds: int = 0,
+                        _retry: bool = False) -> tuple:
+    """Resolve "<title> <artist>" to (ids, confidence, title_cov).
 
-    # Ambient / no-duration-target → fall back to any full-length identity match.
-    if not tier and full_length:
-        tier, tier_label = full_length, ("ambient pool" if ambient else "full-length / no duration target")
+    Pipeline:
+      1. Cast a WIDE net — 6 search variants spanning the most reliable
+         discovery patterns for songs on YouTube:
+           a. primary       "<title> <artist>"
+           b. reversed      "<artist> - <title>"
+           c. audio variant "<title> <artist> audio"
+           d. lyrics        "<title> <artist> lyrics"
+           e. official      "<title> <artist> official audio"
+           f. topic upload  "<artist> <title> topic"
+      2. Dedupe → one videos.list call returns embeddable + duration + title
+         + channel for every candidate.
+      3. Score every candidate with `_match_score`. Duration is a ranking
+         signal here, NOT a gate.
+      4. Accept every candidate whose TITLE coverage clears the title's own
+         majority weight (_TITLE_MAJORITY).
+      5. Refusal branch fires SECOND-PASS RETRY: one extra search with the
+         artist dropped and "full song" added, scored through the same
+         pipeline. If that clears the floor it plays; otherwise we return
+         empty (`confidence=0`) and the player surfaces "unavailable".
 
-    # Snippet fallback — last resort, only when no full-length identity match
-    # exists at any duration. The user explicitly asked for this: "if there is
-    # absolutely NO way of finding the music piece, ONLY THEN can a 30s/1min
-    # snippet play."
-    if not tier:
-        snippets = [v for v in identity_ok
-                    if (meta.get(v) or {}).get("duration", 0) >= _SNIPPET_FALLBACK_SECONDS]
-        snippets.sort(key=lambda v: -meta[v]["duration"])  # prefer the longest snippet
-        if snippets:
-            tier, tier_label = snippets, "snippet fallback"
-            logger.info(
-                f"[YOUTUBE] snippet fallback for {title!r} / {artist!r} — "
-                f"no full-length identity match exists; longest snippet wins"
-            )
+    Quota budget: up to 6 searches (600u) + 1 videos.list (1u) ≈ 601u per
+    miss. Retry adds at most 100u + 1u when it fires. Cache makes hits free.
+    """
+    # Ambient/noise/nature tracks (pink noise, rain, ASMR, binaural) need
+    # the relaxed scoring posture: artist neutralised (Spotify "artist" is
+    # usually a label that doesn't match YouTube uploaders), duration neutral
+    # (uploads vary 30s↔10h with no meaningful target). Detected from title
+    # + artist text by sound_seeds.is_sound_track.
+    ambient = bool(is_sound_track(title, artist))
+    if ambient:
+        logger.info(f"[AMBIENT] {title!r} / {artist!r}: relaxed scoring posture")
 
-    if not tier:
-        logger.info(
-            f"[YOUTUBE] identity matches exist but all are shorter than "
-            f"{_SNIPPET_FALLBACK_SECONDS}s for {title!r} / {artist!r} — skipping"
-        )
-        return []
-
-    tier.sort(key=by_score)
-    embed = [v for v in tier if (meta.get(v) or {}).get("embeddable")]
-    rest  = [v for v in tier if v not in set(embed)]
-    logger.info(
-        f"[YOUTUBE] {title!r} / {artist!r}: {len(tier)} pick(s) in tier '{tier_label}', "
-        f"primary={(embed + rest)[0] if (embed or rest) else None}"
+    primary_queries = [
+        (f"{title} {artist}".strip(),                False),
+        (f"{artist} - {title}".strip(" -"),          False),
+        (f"{title} {artist} audio".strip(),          False),
+        (f"{title} {artist} lyrics".strip(),         False),
+        (f"{title} {artist} official audio".strip(), False),
+        (f"{artist} {title} topic".strip(),          False),
+    ]
+    ids, best_score, best_tcov = _run_search_pipeline(
+        title, artist, target_seconds, primary_queries, ambient=ambient,
     )
-    return (embed + rest)[:20]
+
+    if ids and best_tcov >= _TITLE_MAJORITY:
+        logger.info(
+            f"[YOUTUBE] {title!r} / {artist!r}: {len(ids)} pick(s), "
+            f"best score={best_score:.2f} (title {best_tcov:.2f}), primary={ids[0]}"
+        )
+        return ids, best_score, best_tcov
+
+    # ── Second-pass retry ────────────────────────────────────────────────
+    # First pass either returned no ids OR ranked a sub-floor candidate at
+    # the top. Try ONE more search with the query relaxed: artist dropped,
+    # "full song" appended (selects uploaders who explicitly market the
+    # full-length cut over previews). One-shot; the `_retry` guard prevents
+    # recursion if this code path ever calls back into itself.
+    if _retry:
+        logger.info(
+            f"[RETRY] giving up for {title!r} / {artist!r} — best title "
+            f"coverage {best_tcov:.2f} stays below floor after relaxation"
+        )
+        return [], 0.0, best_tcov
+
+    logger.info(
+        f"[RETRY] primary refused for {title!r} / {artist!r} "
+        f"(best tcov {best_tcov:.2f}); relaxing query"
+    )
+    retry_queries = [
+        (f"{title} full song".strip(), False),
+        (f"{title}".strip(),           True),     # music-only category, no artist
+    ]
+    ids2, score2, tcov2 = _run_search_pipeline(
+        title, artist, target_seconds, retry_queries, ambient=ambient,
+    )
+    if ids2 and tcov2 >= _TITLE_MAJORITY:
+        logger.info(
+            f"[RETRY] recovered {title!r} / {artist!r} via relaxation: "
+            f"score={score2:.2f} (title {tcov2:.2f}), primary={ids2[0]}"
+        )
+        return ids2, score2, tcov2
+
+    # Surface whichever pass scored higher even on the failure log, so it's
+    # visible during dev what the "almost made it" candidate looked like.
+    fallback_score = max(best_score, score2)
+    fallback_tcov  = max(best_tcov, tcov2)
+    logger.info(
+        f"[YOUTUBE] refusing {title!r} / {artist!r} after retry — "
+        f"best title coverage {fallback_tcov:.2f}"
+    )
+    return [], 0.0, fallback_tcov
+
+
+# ── Confidence-band cutoffs ────────────────────────────────────────────────
+# The score formula's practical ceiling for a "clean" match (perfect title,
+# perfect artist, unknown duration, embeddable, official channel) is roughly
+# 0.60 + 0.25 + 0.15*0.5 + 0.04 + 0.04 + 0.03 ≈ 0.835, scaled by ~1.02 channel
+# rep ≈ 0.85. A perfect-everything match with known duration tops near ~0.95.
+# So the bands are anchored to that achievable range, not 0..1.
+_CONFIDENCE_HIGH = 0.70
+_CONFIDENCE_LOW  = 0.55
+
+
+def _confidence_label(score: float) -> str:
+    if score >= _CONFIDENCE_HIGH:
+        return "high"
+    if score < _CONFIDENCE_LOW:
+        return "low"
+    return "medium"
 
 
 @router.get("/api/youtube/resolve")
@@ -539,11 +774,17 @@ def resolve_youtube(request: Request, title: str = "", artist: str = "", exclude
     # resolution returned None → app-wide "skipping" for the rest of the day.
     # Now: when exclude is set, try the remaining cached candidates first;
     # only do a fresh search when the entire cached pool is dead.
-    found, cached_ids = _cache_get(key)
+    found, cached_ids, cached_conf = _cache_get(key)
     if found and cached_ids:
         remaining = [c for c in cached_ids if c not in exclude_set]
         if remaining:
-            return {"videoId": remaining[0], "candidates": remaining, "cached": True}
+            return {
+                "videoId":         remaining[0],
+                "candidates":      remaining,
+                "cached":          True,
+                "confidence":      cached_conf,
+                "confidenceLabel": _confidence_label(cached_conf),
+            }
         # Cached pool fully exhausted by the iframe's exclude list — fall
         # through to a fresh search below (but reuse the cached ids as
         # already-tried so we don't re-pick them).
@@ -554,13 +795,91 @@ def resolve_youtube(request: Request, title: str = "", artist: str = "", exclude
         raise HTTPException(status_code=503, detail="YouTube playback is not configured.")
 
     target_seconds = int(duration_ms // 1000) if duration_ms > 0 else 0
-    candidates = [c for c in _search_candidates(title, artist, target_seconds) if c not in exclude_set]
+    all_candidates, best_score, _best_tcov = _search_candidates(title, artist, target_seconds)
+    candidates = [c for c in all_candidates if c not in exclude_set]
     video_id = candidates[0] if candidates else ""
     if candidates:
-        _cache_put(key, candidates, title, artist)  # cache the full ranked list
+        _cache_put(key, candidates, title, artist, confidence=best_score)
     else:
         # Don't poison the cache with a miss — a transient error (quota, a
         # referrer-restricted key returning 403, no results) shouldn't block
         # this track forever. It'll simply be retried next time.
         logger.warning(f"[YOUTUBE] no embeddable videoId for {title!r} / {artist!r} (excluded {len(exclude_set)})")
-    return {"videoId": video_id or None, "candidates": candidates, "cached": False}
+    return {
+        "videoId":         video_id or None,
+        "candidates":      candidates,
+        "cached":          False,
+        "confidence":      best_score if candidates else 0.0,
+        "confidenceLabel": _confidence_label(best_score) if candidates else "low",
+    }
+
+
+# ── Telemetry skeleton ──────────────────────────────────────────────────────
+# Append-only JSONL of play / skip / replay events. Flat-file now; the schema
+# (one JSON object per line, stable field names) lets us graduate this to
+# Postgres later by tailing the file or replaying it once. Never blocks the
+# request: best-effort writes, never raises.
+#
+# Skip threshold lives on the CLIENT — server just records what arrives. The
+# spec uses 10s (skip = next pressed within 10s of play start), which the
+# frontend enforces.
+
+_TELEMETRY_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "data", "telemetry.jsonl",
+)
+
+
+class TelemetryEvent(BaseModel):
+    track_id:         Optional[str] = Field(default="", description="client-side track UUID (player queue id)")
+    title:            Optional[str] = ""
+    artist:           Optional[str] = ""
+    video_id:         Optional[str] = ""
+    event_type:       str = Field(..., description="one of: play | skip | replay | complete")
+    score:            Optional[float] = 0.0
+    confidence_label: Optional[str] = ""
+    elapsed_ms:       Optional[int] = 0
+    timestamp:        Optional[int] = 0
+
+
+_ALLOWED_EVENTS = {"play", "skip", "replay", "complete"}
+
+
+@router.post("/api/telemetry/event")
+def telemetry_event(ev: TelemetryEvent, request: Request):
+    """Append a single playback event to the JSONL log.
+
+    Schema is intentionally minimal but stable: track identity (id / title /
+    artist / video_id), event_type, match score + label at resolve time,
+    elapsed_ms at the moment the event fires (lets us learn skip-time
+    distributions), and a client-supplied timestamp. The server stamps its
+    own arrival time for any later clock-drift correction.
+
+    No-op on bad event_type or write failure. Never blocks playback.
+    """
+    require_session_token(request, lax=True)
+    et = (ev.event_type or "").lower().strip()
+    if et not in _ALLOWED_EVENTS:
+        raise HTTPException(status_code=400, detail=f"unknown event_type: {et!r}")
+
+    row = {
+        "event_type":       et,
+        "track_id":         (ev.track_id or "")[:64],
+        "title":            (ev.title or "")[:300],
+        "artist":           (ev.artist or "")[:300],
+        "video_id":         (ev.video_id or "")[:32],
+        "score":            float(ev.score or 0.0),
+        "confidence_label": (ev.confidence_label or "")[:16],
+        "elapsed_ms":       int(ev.elapsed_ms or 0),
+        "client_ts":        int(ev.timestamp or 0),
+        "server_ts":        int(time.time() * 1000),
+    }
+    try:
+        os.makedirs(os.path.dirname(_TELEMETRY_PATH), exist_ok=True)
+        with open(_TELEMETRY_PATH, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(row, separators=(",", ":")) + "\n")
+    except Exception as exc:
+        # Telemetry never breaks playback. Log and move on.
+        logger.warning(f"[TELEMETRY] write failed: {exc}")
+        return {"recorded": False}
+    return {"recorded": True}

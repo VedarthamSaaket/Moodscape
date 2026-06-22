@@ -1,7 +1,8 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { API_BASE } from '../config';
 import useQuizStore from '../store/quizStore';
 import usePlayerStore from '../store/playerStore';
+import useSavedStore from '../store/savedStore';
 import Dither from '../assets/Dither';
 import "./GeneratorPage.css"
 
@@ -419,6 +420,14 @@ export default function GeneratorPage() {
   const clearPinnedTracks = useQuizStore((s) => s.clearPinnedTracks);
   const playNow           = usePlayerStore((s) => s.playNow);
   const playList          = usePlayerStore((s) => s.playList);
+  const saved             = useSavedStore((s) => s.saved);
+  const toggleSave        = useSavedStore((s) => s.toggleSave);
+  // Set of saved-track keys so each playlist row knows if it's already kept.
+  // Same identity rule as savedStore.savedKey (spotifyUrl, else title·artist).
+  const savedSet = useMemo(
+    () => new Set(saved.map((t) => t.spotifyUrl || `${t.title}·${t.artist}`)),
+    [saved]
+  );
   const [styleBanner, setStyleBanner] = useState(null);
   const [styleContext, setStyleContext] = useState(null);
 
@@ -869,6 +878,23 @@ export default function GeneratorPage() {
                   >
                     ▶︎
                   </button>
+                  {(() => {
+                    const isSaved = savedSet.has(spotifyUrl || `${title}·${artist}`);
+                    return (
+                      <button
+                        type="button"
+                        className={`gen-track-save${isSaved ? ' is-on' : ''}`}
+                        onClick={() =>
+                          toggleSave({ title, artist, albumArt, spotifyUrl })
+                            .catch((e) => console.error('[GEN] toggleSave error:', e))
+                        }
+                        title={isSaved ? 'Saved — tap to remove' : 'Save song'}
+                        aria-label={isSaved ? `Remove ${title} from saved` : `Save ${title}`}
+                      >
+                        {isSaved ? '♥︎' : '♡︎'}
+                      </button>
+                    );
+                  })()}
                   <button
                     type="button"
                     className="gen-track-remove"

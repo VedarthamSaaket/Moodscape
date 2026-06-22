@@ -173,6 +173,26 @@
   max-width: 38vw;
 }
 
+/* ── Low-confidence "best guess" badge ────────────────────────────────────
+   Only renders when the resolver returned confidenceLabel === "low". Muted
+   amber, small, sits inline next to the track title so the user knows the
+   match wasn't a confident pick and they can hit ⏭ if it's wrong. */
+.gp-conf-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 6px;
+  font-size: 0.58rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(230, 200, 122, 0.92);
+  background: rgba(70, 56, 30, 0.55);
+  border: 1px solid rgba(230, 200, 122, 0.32);
+  border-radius: 3px;
+  vertical-align: middle;
+  cursor: help;
+}
+
 /* ── Transport ── */
 .gp-controls {
   display: flex;
