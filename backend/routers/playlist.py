@@ -1,3 +1,4 @@
+import random
 import re
 import requests
 from itertools import zip_longest
@@ -681,25 +682,37 @@ def quiz_suggestions(data: SuggestionsRequest, request: Request):
     #     the generic HF zero-shot → mood-bank route would land on a much
     #     broader "sad indie" cloud.
     if archetype_seeds:
-        per_seed = max(1, min(2, (count // max(1, len(archetype_seeds))) + 1))
-        for q in archetype_seeds:
+        # Shuffle the seed order itself so the SAME archetype yields a different
+        # opening track each retake. Spotify search rank within a single seed is
+        # stable, so we also widen the per-seed pool (limit=30) and randomly
+        # pick from the top hits — gives variety while staying topically tight.
+        seeds_shuffled = list(archetype_seeds)
+        random.shuffle(seeds_shuffled)
+        per_seed = max(1, min(2, (count // max(1, len(seeds_shuffled))) + 1))
+        for q in seeds_shuffled:
             if len(archetype_tracks) >= count:
                 break
             try:
-                hits = search_tracks_by_query(token, q, market, limit=12)
+                hits = search_tracks_by_query(token, q, market, limit=30)
             except Exception as exc:
                 logger.warning(f"[SUGGEST] archetype seed '{q}' failed: {exc}")
                 continue
-            added_for_seed = 0
-            for t in hits:
+            # Within this seed's top-30 hits, keep only those still allowed by
+            # dedup, then sample `per_seed` at random. Sampling pool capped at
+            # the top-N for relevance — going beyond rank ~20 starts surfacing
+            # off-vibe tracks.
+            candidates = []
+            for t in hits[:20]:
                 uri = t.get("uri", "")
                 a   = t["artists"][0]["name"] if t.get("artists") else ""
                 if uri and dedup.is_allowed(uri, a):
-                    dedup.register(uri, a)
-                    archetype_tracks.append(normalise_track(t))
-                    added_for_seed += 1
-                if added_for_seed >= per_seed:
-                    break
+                    candidates.append(t)
+            random.shuffle(candidates)
+            for t in candidates[:per_seed]:
+                uri = t.get("uri", "")
+                a   = t["artists"][0]["name"] if t.get("artists") else ""
+                dedup.register(uri, a)
+                archetype_tracks.append(normalise_track(t))
 
     if personal:
         # ── 1. The artist's own top tracks ──────────────────────────────────
@@ -708,7 +721,12 @@ def quiz_suggestions(data: SuggestionsRequest, request: Request):
             if artist:
                 artist_genres = [g for g in (artist.get("genres") or []) if g][:3]
                 want_artist   = min(4, max(2, count // 3))
-                for t in get_artist_top_tracks(token, artist["id"], market):
+                # Artist top-tracks endpoint is deterministic — shuffle the full
+                # top-10 then take the first N still allowed by dedup. Different
+                # retake = different sample from the same well-known catalogue.
+                top = list(get_artist_top_tracks(token, artist["id"], market))
+                random.shuffle(top)
+                for t in top:
                     uri = t.get("uri", "")
                     a   = t["artists"][0]["name"] if t.get("artists") else ""
                     if uri and dedup.is_allowed(uri, a):
@@ -736,7 +754,11 @@ def quiz_suggestions(data: SuggestionsRequest, request: Request):
                 break
             q = sanitise_search_token(f"{g} {emotion}".strip(), "themeQuery", max_len=120)
             try:
-                for t in search_tracks_by_query(token, q, market, limit=15):
+                # Widen pool + sample so identical artist-genre+emotion combos
+                # don't return the same three theme picks on every retake.
+                pool = list(search_tracks_by_query(token, q, market, limit=30))[:20]
+                random.shuffle(pool)
+                for t in pool:
                     uri = t.get("uri", "")
                     a   = t["artists"][0]["name"] if t.get("artists") else ""
                     if uri and dedup.is_allowed(uri, a):
@@ -765,12 +787,13 @@ def quiz_suggestions(data: SuggestionsRequest, request: Request):
 
     # Weave the strands round-robin so the list reads as a genuine blend
     # rather than stacked blocks. The user's named track always leads, then
-    # one from each strand: archetype seeds (curated), artist tracks (their
-    # named favourite), theme tracks (artist genre + mood), and the generic
-    # quiz/mood fill. Archetype seeds sit first in each rotation so the
-    # samples are recognisably the archetype's sound from the top of the list.
+    # one from each strand. Strand ORDER itself is shuffled per call so the
+    # same archetype doesn't always lead with the archetype-seed pick — keeps
+    # the same-archetype-takes-different-faces promise from the top down.
+    strands = [archetype_tracks, artist_tracks, theme_tracks, quiz_tracks]
+    random.shuffle(strands)
     blended = (seed_tracks + [
-        t for group in zip_longest(archetype_tracks, artist_tracks, theme_tracks, quiz_tracks)
+        t for group in zip_longest(*strands)
         for t in group if t
     ])[:count]
 

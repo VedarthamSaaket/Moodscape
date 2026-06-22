@@ -80,9 +80,10 @@ def _ensure_schema() -> None:
         release_db_connection(conn)
 
 
-# v6: wider 6-query identity sweep + snippet fallback tier so a song with no
-# full-length uploads still plays. Bumped to invalidate pre-sweep cache rows.
-_CACHE_VERSION = "v6"
+# v7: search-time embeddable+syndicated filter + duration bucket + 3-tier
+# resolve (strict → relaxed → union-surface). Cache bumped to drop v6 rows
+# that were cached before the source-side iframe-friendly filter existed.
+_CACHE_VERSION = "v7"
 
 
 def _cache_key(title: str, artist: str) -> str:
@@ -535,12 +536,43 @@ def _match_score(meta: dict, want_title_tokens: list, want_artist_tokens: list,
     return max(0.0, min(1.0, score)), title_cov
 
 
-def _raw_search_ids(query: str, max_results: int = 25, music_only: bool = False) -> list:
+def _duration_bucket(seconds: int) -> str:
+    """Map a target song length to YouTube's `videoDuration` enum.
+    short = <4min, medium = 4–20min, long = >20min, any = unknown.
+    Used in the search call so YouTube only returns uploads in the right
+    ballpark and we don't burn quota on Shorts or 10-hour mixes."""
+    if seconds <= 0:
+        return "any"
+    if seconds < 240:
+        return "short"
+    if seconds <= 1200:
+        return "medium"
+    return "long"
+
+
+def _raw_search_ids(query: str, max_results: int = 25, music_only: bool = False,
+                    embeddable_only: bool = True, duration_bucket: str = "any") -> list:
     """One YouTube search → list of videoIds in rank order. 100 quota units.
 
-    music_only=True adds videoCategoryId=10 (Music) to filter out reactions,
-    tutorials, vlogs at the source — quota-free win when the song is mainstream
-    enough for YouTube's category classifier to have caught it.
+    Default filters favour iframe-playable results AT SOURCE:
+      • videoEmbeddable=true — YouTube only returns uploads it claims can be
+        embedded (the `videos.list` embeddable flag often disagrees with
+        what the iframe actually accepts, but search-side filtering at least
+        culls the bulk of label-blocked masters that throw code=150).
+      • videoSyndicated=true — only uploads playable outside youtube.com,
+        the proper iframe-friendly subset. This was the single biggest source
+        of "couldn't find, skipping" — non-syndicated VEVO/label uploads were
+        returned, looked embeddable in `videos.list`, then died in the iframe.
+      • videoDuration=<bucket> — when target length is known, ditto.
+      • music_only — videoCategoryId=10 strips reactions/tutorials/vlogs.
+
+    These all run AT THE SEARCH LAYER, so they cost nothing extra and pre-cull
+    junk before it even reaches the scoring stage.
+
+    `embeddable_only=False` is reserved for last-ditch fallback queries — the
+    filter occasionally drops too aggressively for obscure tracks (the search
+    side and the video side don't share the same embeddability index), and
+    the player can still try those uploads via the fallthrough loop.
     """
     try:
         params = {
@@ -550,6 +582,11 @@ def _raw_search_ids(query: str, max_results: int = 25, music_only: bool = False)
             "type":       "video",
             "maxResults": max_results,
         }
+        if embeddable_only:
+            params["videoEmbeddable"] = "true"
+            params["videoSyndicated"] = "true"
+        if duration_bucket and duration_bucket != "any":
+            params["videoDuration"] = duration_bucket
         if music_only:
             params["videoCategoryId"] = "10"
         res = requests.get(
@@ -571,14 +608,16 @@ def _raw_search_ids(query: str, max_results: int = 25, music_only: bool = False)
 
 
 # Acceptance floor — only refusal path is "this is a DIFFERENT song", which
-# shows up as the title barely overlapping. Half of the title's own weighted
-# tokens is the cutoff. Scales per song (1-word titles demand the word;
-# 6-word titles tolerate a missing minor word) and never tunes per-song.
-_TITLE_MAJORITY = 0.5
+# shows up as the title barely overlapping. Lowered from 0.5 to 0.4 (Apr v3.1)
+# so right-title uploads with messy decoration ("Song Name | Lyrical Video |
+# Featured | Bollywood 2023") still clear when ~40% of distinctive title-weight
+# matches. Wrong songs still fail; right songs with verbose titles now don't.
+_TITLE_MAJORITY = 0.4
 
 
 def _run_search_pipeline(title: str, artist: str, target_seconds: int,
-                          queries: list, ambient: bool = False) -> tuple:
+                          queries: list, ambient: bool = False,
+                          embeddable_only: bool = True) -> tuple:
     """Inner pipeline shared by the primary call and the second-pass retry.
 
     Takes a list of (query, music_only) tuples, runs them, scores the union
@@ -586,10 +625,15 @@ def _run_search_pipeline(title: str, artist: str, target_seconds: int,
     (accepted_ids, best_score, best_title_cov). Empty tuple-of-zeros on
     total miss (no ids at all). `ambient=True` propagates the relaxed scoring
     posture (artist neutralised, duration neutral) down to `_match_score`.
+    `embeddable_only=False` widens the second-pass fallback, since the search
+    embeddability filter is over-eager on obscure tracks.
     """
     want_title_tokens  = _tokens(_clean_title(title))
     want_artist_tokens = _tokens(artist)
     required_versions  = _required_versions(title)
+    # When target length is known, ask YouTube to pre-bucket results — this
+    # alone strips most Shorts / extended-remix junk before scoring.
+    dur_bucket = "any" if ambient else _duration_bucket(target_seconds)
 
     if not want_title_tokens:
         return [], 0.0, 0.0
@@ -599,7 +643,10 @@ def _run_search_pipeline(title: str, artist: str, target_seconds: int,
     for q, music_only in queries:
         if not q:
             continue
-        batch = _raw_search_ids(q, 20, music_only=music_only)
+        batch = _raw_search_ids(
+            q, 25, music_only=music_only,
+            embeddable_only=embeddable_only, duration_bucket=dur_bucket,
+        )
         for vid in batch:
             if vid not in seen:
                 seen.add(vid)
@@ -629,7 +676,10 @@ def _run_search_pipeline(title: str, artist: str, target_seconds: int,
     accepted = [vid for s, tcov, vid in scored if tcov >= _TITLE_MAJORITY]
     if not accepted:
         accepted = [scored[0][2]]
-    return accepted[:20], best_score, best_tcov
+    # Return up to 40 (was 20) — the player walks this list on iframe 150
+    # errors, and YouTube's `videos.list embeddable` flag is noisy enough
+    # that a longer fallback list materially reduces "couldn't load" cases.
+    return accepted[:40], best_score, best_tcov
 
 
 def _search_candidates(title: str, artist: str, target_seconds: int = 0,
@@ -668,6 +718,9 @@ def _search_candidates(title: str, artist: str, target_seconds: int = 0,
     if ambient:
         logger.info(f"[AMBIENT] {title!r} / {artist!r}: relaxed scoring posture")
 
+    # ── Tier 1: strict primary — embeddable+syndicated filter + duration bucket
+    # Pre-cull at the SOURCE so most of the iframe-150 deaths never enter the
+    # pool. Six query shapes spanning the standard discovery patterns.
     primary_queries = [
         (f"{title} {artist}".strip(),                False),
         (f"{artist} - {title}".strip(" -"),          False),
@@ -678,6 +731,7 @@ def _search_candidates(title: str, artist: str, target_seconds: int = 0,
     ]
     ids, best_score, best_tcov = _run_search_pipeline(
         title, artist, target_seconds, primary_queries, ambient=ambient,
+        embeddable_only=True,
     )
 
     if ids and best_tcov >= _TITLE_MAJORITY:
@@ -687,12 +741,11 @@ def _search_candidates(title: str, artist: str, target_seconds: int = 0,
         )
         return ids, best_score, best_tcov
 
-    # ── Second-pass retry ────────────────────────────────────────────────
-    # First pass either returned no ids OR ranked a sub-floor candidate at
-    # the top. Try ONE more search with the query relaxed: artist dropped,
-    # "full song" appended (selects uploaders who explicitly market the
-    # full-length cut over previews). One-shot; the `_retry` guard prevents
-    # recursion if this code path ever calls back into itself.
+    # ── Tier 2: relaxed retry — WIDER queries, embeddable filter OFF.
+    # YouTube's search-side `videoEmbeddable` filter is over-eager on obscure
+    # tracks (it sometimes drops uploads that the videos.list endpoint says
+    # ARE embeddable). Dropping it here recovers tracks the strict tier missed.
+    # The `videos.list embeddable` check at scoring time still vets each one.
     if _retry:
         logger.info(
             f"[RETRY] giving up for {title!r} / {artist!r} — best title "
@@ -702,14 +755,24 @@ def _search_candidates(title: str, artist: str, target_seconds: int = 0,
 
     logger.info(
         f"[RETRY] primary refused for {title!r} / {artist!r} "
-        f"(best tcov {best_tcov:.2f}); relaxing query"
+        f"(best tcov {best_tcov:.2f}); relaxing"
     )
+    # Eight relaxed query shapes — more discovery angles than the strict tier,
+    # including artist-dropped variants for tracks where the Spotify artist
+    # field is unhelpful (compilations, soundtracks, labels-as-artist).
     retry_queries = [
-        (f"{title} full song".strip(), False),
-        (f"{title}".strip(),           True),     # music-only category, no artist
+        (f"{title} {artist}".strip(),                False),  # same query, no embed filter
+        (f"{title} {artist} full song".strip(),      False),
+        (f"{title} {artist} music video".strip(),    False),
+        (f"{title} {artist} hd".strip(),             False),
+        (f"{title} full song".strip(),               False),  # artist dropped
+        (f"{title}".strip(),                         True),   # music-only, title only
+        (f"{title} song".strip(),                    False),
+        (f"{title} {artist} mp3".strip(),            False),
     ]
     ids2, score2, tcov2 = _run_search_pipeline(
         title, artist, target_seconds, retry_queries, ambient=ambient,
+        embeddable_only=False,
     )
     if ids2 and tcov2 >= _TITLE_MAJORITY:
         logger.info(
@@ -718,15 +781,30 @@ def _search_candidates(title: str, artist: str, target_seconds: int = 0,
         )
         return ids2, score2, tcov2
 
-    # Surface whichever pass scored higher even on the failure log, so it's
-    # visible during dev what the "almost made it" candidate looked like.
-    fallback_score = max(best_score, score2)
-    fallback_tcov  = max(best_tcov, tcov2)
+    # ── Tier 3: union of every candidate scored across both passes — if ANY
+    # plausibly ARE this song we surface them with low confidence rather
+    # than refusing outright. The score is what triggers the "best guess"
+    # badge in the player; the user can hit ⏭ if it's actually wrong.
+    union_ids = []
+    seen = set()
+    for src in (ids, ids2):
+        for v in (src or []):
+            if v not in seen:
+                seen.add(v); union_ids.append(v)
+    if union_ids:
+        fallback_score = max(best_score, score2)
+        fallback_tcov  = max(best_tcov, tcov2)
+        logger.info(
+            f"[YOUTUBE] surfacing {len(union_ids)} sub-floor candidate(s) for "
+            f"{title!r} / {artist!r} (score={fallback_score:.2f}, "
+            f"title={fallback_tcov:.2f}) — best-guess playback"
+        )
+        return union_ids[:40], fallback_score, fallback_tcov
+
     logger.info(
-        f"[YOUTUBE] refusing {title!r} / {artist!r} after retry — "
-        f"best title coverage {fallback_tcov:.2f}"
+        f"[YOUTUBE] no candidates at all for {title!r} / {artist!r}"
     )
-    return [], 0.0, fallback_tcov
+    return [], 0.0, 0.0
 
 
 # ── Confidence-band cutoffs ────────────────────────────────────────────────

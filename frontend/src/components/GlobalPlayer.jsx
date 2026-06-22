@@ -163,7 +163,7 @@ export default function GlobalPlayer() {
     if (!tried) { tried = new Set(); triedRef.current.set(tid, tried); }
     if (loadedVideoRef.current) tried.add(loadedVideoRef.current);
 
-    if (tried.size > 12) { skipUnplayable(); return; }  // bound the hunt — backend serves up to 20 candidates per track
+    if (tried.size > 24) { skipUnplayable(); return; }  // bound the hunt — backend serves up to 40 candidates per track
 
     // 1) An alternate upload we already know about — costs no extra quota.
     const known = (altsRef.current.get(tid) || []).filter((id) => !tried.has(id));

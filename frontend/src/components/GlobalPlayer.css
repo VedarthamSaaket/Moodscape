@@ -213,6 +213,19 @@
 }
 .gp-ctrl:hover { color: #fff; background: rgba(255, 255, 255, 0.08); }
 .gp-ctrl:active { transform: scale(0.92); }
+/* Suppress the browser's default focus rectangle that lingers after a click
+   on next/prev/play (visible on Chromium/Edge). Keyboard users still get an
+   accessible cue via a soft inset glow scoped to :focus-visible. */
+.gp-ctrl:focus { outline: none; }
+.gp-ctrl:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.22) inset;
+}
+.gp-mini:focus { outline: none; }
+.gp-mini:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.22);
+}
 .gp-ctrl--play {
   width: 40px;
   height: 40px;
