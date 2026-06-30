@@ -835,6 +835,24 @@ export default function GeneratorPage() {
               )}
             </div>
 
+            <div className="gen-save-help">
+              <div className="gen-save-help-head">
+                <span className="gen-save-help-eyebrow">Heads up</span>
+                <span className="gen-save-help-title">
+                  Play these songs right here, or save the playlist to your Spotify
+                </span>
+              </div>
+              <p className="gen-save-help-body">
+                Hit <strong>▶︎</strong> on any track to play it in the app and queue the rest.
+                To keep the whole playlist on your Spotify account:
+              </p>
+              <ol className="gen-save-help-steps">
+                <li>Tap <strong>Open in Spotify</strong> above.</li>
+                <li>On the playlist page, tap the <strong>♡ heart</strong> to save it to your library.</li>
+                <li>Done — it now lives under your playlists in Spotify.</li>
+              </ol>
+            </div>
+
             <ul className="gen-tracklist">
               {playlist.map(({ title, artist, albumArt, spotifyUrl }, i) => (
                 <li

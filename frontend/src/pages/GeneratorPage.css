@@ -364,6 +364,67 @@
     }
 }
 
+/* Save-to-Spotify help callout, shown above the tracklist after generation */
+.gen-save-help {
+  margin: 16px 0 18px;
+  padding: 14px 16px 12px;
+  border: 1px solid rgba(120, 200, 150, 0.32);
+  border-left: 3px solid rgba(120, 200, 150, 0.78);
+  border-radius: 10px;
+  background: linear-gradient(90deg,
+    rgba(30, 215, 96, 0.08) 0%,
+    rgba(120, 200, 150, 0.04) 100%);
+  font-family: var(--font-body);
+  color: rgba(225, 240, 230, 0.92);
+  animation: cardIn 0.5s var(--ease, cubic-bezier(0.16, 1, 0.3, 1)) both;
+}
+
+.gen-save-help-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.gen-save-help-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: rgba(150, 230, 180, 0.88);
+}
+
+.gen-save-help-title {
+  font-size: 0.96rem;
+  line-height: 1.35;
+  color: rgba(232, 244, 235, 0.95);
+  font-weight: 500;
+}
+
+.gen-save-help-body {
+  margin: 0 0 6px;
+  font-size: 0.86rem;
+  line-height: 1.5;
+  color: rgba(220, 232, 226, 0.86);
+}
+
+.gen-save-help-steps {
+  margin: 0;
+  padding-left: 1.25rem;
+  font-size: 0.86rem;
+  line-height: 1.55;
+  color: rgba(220, 232, 226, 0.86);
+}
+
+.gen-save-help-steps li {
+  margin: 2px 0;
+}
+
+.gen-save-help strong {
+  color: rgba(180, 240, 200, 0.98);
+  font-weight: 600;
+}
+
 /* Hint below tracklist */
 .gen-suggest-hint {
     display: flex;

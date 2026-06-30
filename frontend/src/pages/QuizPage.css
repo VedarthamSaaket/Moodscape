@@ -351,8 +351,8 @@
   font-size: 0.62rem;
   letter-spacing: 0.28em;
   text-transform: uppercase;
-  color: rgba(237, 242, 247, 0.62);
-  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.6);
+  color: rgba(237, 242, 247, 0.88);
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.65);
 }
 
 .quiz-result-name {
@@ -371,17 +371,18 @@
   font-family: var(--font-display);
   font-style: italic;
   font-size: 1.5rem;
-  color: rgba(237, 242, 247, 0.78);
-  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.55);
+  color: rgba(237, 242, 247, 0.94);
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.65);
   margin: 0;
 }
 
 .quiz-result-confidence {
   font-family: var(--font-body);
-  font-size: 0.78rem;
+  font-size: 0.82rem;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: rgba(237, 242, 247, 0.55);
+  color: rgba(228, 240, 248, 0.9);
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.6);
   margin: 0.5rem 0 0;
 }
 
@@ -389,23 +390,25 @@
    between two-plus archetypes. Framed as a richer read, not a weaker one. */
 .quiz-result-blend {
   font-family: var(--font-body);
-  font-size: 0.92rem;
+  font-size: 0.95rem;
   line-height: 1.5;
-  color: var(--text-2, #9aaab6);
+  color: rgba(225, 236, 245, 0.9);
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.55);
   max-width: 50ch;
   margin: 0.45rem 0 0;
 }
 
 .quiz-result-blend strong {
-  color: rgba(237, 242, 247, 0.92);
+  color: rgba(245, 250, 255, 0.98);
   font-weight: 600;
 }
 
 .quiz-result-blurb {
   font-family: var(--font-body);
-  font-size: 1.05rem;
+  font-size: 1.06rem;
   line-height: 1.55;
-  color: var(--text-2, #9aaab6);
+  color: rgba(225, 236, 245, 0.92);
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.55);
   max-width: 52ch;
   margin: 0.4rem 0 0.8rem;
 }
@@ -461,7 +464,8 @@
 }
 
 .quiz-seed-value {
-  color: var(--text-2, #c8d3da);
+  color: rgba(228, 240, 248, 0.92);
+  text-shadow: 0 1px 5px rgba(0, 0, 0, 0.5);
 }
 
 .quiz-result-actions {

@@ -113,7 +113,15 @@ function SignUpPage() {
       </form>
 
       {message && (
-        <p className={`message ${isError ? 'error' : 'success'}`}>{message}</p>
+        <>
+          <p className={`message ${isError ? 'error' : 'success'}`}>{message}</p>
+          {!isError && (
+            <p className="signup-spam-hint">
+              Can't find it? Check your <strong>spam</strong> or <strong>junk</strong> folder —
+              the code sometimes lands there.
+            </p>
+          )}
+        </>
       )}
 
       <Link to="/signin" className="home-link">

@@ -1132,6 +1132,25 @@ button:focus-visible {
   color: var(--rg-light);
 }
 
+.signup-spam-hint {
+  font-family: var(--font-body);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  text-align: center;
+  width: 100%;
+  margin: 8px 0 0;
+  padding: 8px 14px;
+  color: rgba(220, 232, 240, 0.86);
+  text-shadow: 0 1px 5px rgba(0, 0, 0, 0.55);
+  position: relative;
+  z-index: 1;
+}
+
+.signup-spam-hint strong {
+  color: var(--rg-light);
+  font-weight: 600;
+}
+
 
 /* ============================================================
    GENERATOR LAYOUT, mountain dusk atmosphere

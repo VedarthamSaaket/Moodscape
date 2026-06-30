@@ -276,7 +276,8 @@
   font-family: var(--font-body);
   font-size: 1.08rem;
   line-height: 1.5;
-  color: var(--text-2, #c8d3da);
+  color: rgba(228, 240, 248, 0.92);
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.55);
   animation: cardIn 0.5s var(--ease, cubic-bezier(0.16, 1, 0.3, 1)) both;
   animation-delay: calc(var(--i, 0) * 80ms + 80ms);
 }
@@ -298,12 +299,13 @@
   margin: 0 0 2.2rem;
   padding: 0.9rem 1.1rem;
   border-left: 2px solid var(--mist, #8aa3b8);
-  background: rgba(138, 163, 184, 0.06);
+  background: rgba(138, 163, 184, 0.08);
   border-radius: 0 6px 6px 0;
   font-family: var(--font-body);
   font-size: 1rem;
   line-height: 1.55;
-  color: var(--text-2, #c8d3da);
+  color: rgba(228, 240, 248, 0.92);
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.55);
   animation: cardIn 0.5s var(--ease, cubic-bezier(0.16, 1, 0.3, 1)) both;
   animation-delay: calc(var(--i, 0) * 80ms + 80ms);
 }
@@ -443,7 +445,8 @@
   font-size: 0.62rem;
   letter-spacing: 0.26em;
   text-transform: uppercase;
-  color: var(--text-3);
+  color: rgba(228, 240, 248, 0.85);
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.6);
 }
 
 .sns-reveal-name {
@@ -472,7 +475,8 @@
 .sns-gap-line {
   font-family: var(--font-body);
   font-size: 1rem;
-  color: var(--text-2, #c8d3da);
+  color: rgba(228, 240, 248, 0.92);
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.55);
   margin: 0.2rem 0 0;
 }
 
@@ -488,9 +492,10 @@
 
 .sns-reveal-blurb {
   font-family: var(--font-body);
-  font-size: 1.05rem;
+  font-size: 1.06rem;
   line-height: 1.55;
-  color: var(--text-2, #9aaab6);
+  color: rgba(225, 236, 245, 0.92);
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.55);
   max-width: 54ch;
   margin: 0.4rem 0 0.6rem;
 }
@@ -556,10 +561,11 @@
   display: flex;
   justify-content: space-between;
   font-family: var(--font-mono);
-  font-size: 0.58rem;
+  font-size: 0.6rem;
   letter-spacing: 0.22em;
   text-transform: uppercase;
-  color: var(--text-3);
+  color: rgba(220, 232, 240, 0.84);
+  text-shadow: 0 1px 5px rgba(0, 0, 0, 0.5);
 }
 
 /* ── SUMMARY ──────────────────────────────────────────────────────────────── */
@@ -605,10 +611,11 @@
 
 .sns-score-label {
   font-family: var(--font-mono);
-  font-size: 0.58rem;
+  font-size: 0.6rem;
   letter-spacing: 0.22em;
   text-transform: uppercase;
-  color: var(--text-3);
+  color: rgba(220, 232, 240, 0.86);
+  text-shadow: 0 1px 5px rgba(0, 0, 0, 0.55);
 }
 
 .sns-recap {
