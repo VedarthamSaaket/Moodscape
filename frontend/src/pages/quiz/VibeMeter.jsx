@@ -43,10 +43,10 @@ function VibeMeter({ scores, size = 260, accent = { from: '#9ab8cc', to: '#8e9fc
   // This means temp=−8 puts the "warm-N" point near center (not drawn into the south).
   // We treat the polygon as a "lean" indicator on each pole, not a true cross.
   const t = {
-    N: axisToUnit(scores.temp),
-    E: axisToUnit(scores.edge),
-    S: axisToUnit(scores.era),
-    W: axisToUnit(scores.density),
+    N: axisToUnit(scores.temp, 'temp'),
+    E: axisToUnit(scores.edge, 'edge'),
+    S: axisToUnit(scores.era, 'era'),
+    W: axisToUnit(scores.density, 'density'),
   };
 
   const points = {

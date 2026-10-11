@@ -42,6 +42,7 @@ function pushResult(state) {
     scores:         state.scores || { temp: 0, edge: 0, era: 0, density: 0 },
     answers:        state.answers || [],
     completed_at:   state.completedAt || new Date().toISOString(),
+    insight:        state.insight || null,
   };
   fetch(`${API_BASE}/api/quiz/result`, {
     method: 'PUT',
@@ -80,6 +81,8 @@ const useQuizStore = create(
       // 1-3 archetypes {archetype, confidence} — more than one when the quiz
       // genuinely hovered between styles, driving the "you're a blend" reveal.
       topMatches: null,
+      insight: null,
+      insightStatus: 'idle',
       completedAt: null,
       hydratedFromServer: false,
       pendingStyleSeed: null,
@@ -116,6 +119,42 @@ const useQuizStore = create(
           return { answers: next };
         }),
 
+      recordText: (questionId, text) =>
+        set((s) => {
+          const next = s.answers.filter((a) => a.questionId !== questionId);
+          const clean = String(text || '').trim();
+          if (clean) next.push({ questionId, text: clean });
+          return { answers: next };
+        }),
+
+      setInsightStatus: (status) => set({ insightStatus: status }),
+
+      applyInsight: ({ insight, refined, completedAt }) => {
+        if (get().completedAt !== completedAt) return;
+        set({
+          insight: insight || null,
+          insightStatus: insight ? 'done' : 'failed',
+          ...(refined ? {
+            archetype:          refined.archetype,
+            runnerUp:           refined.runnerUp,
+            confidence:         refined.confidence,
+            runnerUpConfidence: refined.runnerUpConfidence,
+            margin:             refined.margin,
+            displayConfidence:  refined.displayConfidence,
+            topMatches:         refined.topMatches,
+          } : {}),
+        });
+        const s = get();
+        pushResult({
+          scores: s.scores,
+          archetype: s.archetype,
+          runnerUp: s.runnerUp,
+          completedAt: s.completedAt,
+          answers: s.answers,
+          insight: s.insight,
+        });
+      },
+
       // Finalize quiz, store scoring output, timestamp, and push to backend.
       finalize: ({ scores, archetype, runnerUp, confidence, runnerUpConfidence, margin, displayConfidence, topMatches }) => {
         const completedAt = new Date().toISOString();
@@ -128,6 +167,8 @@ const useQuizStore = create(
           margin: margin ?? null,
           displayConfidence: displayConfidence ?? null,
           topMatches: topMatches ?? null,
+          insight: null,
+          insightStatus: 'idle',
           completedAt,
         });
         pushResult({
@@ -137,6 +178,7 @@ const useQuizStore = create(
           completedAt,
           answers: get().answers,
         });
+        return completedAt;
       },
 
       // Wipe everything for a retake (locally AND on the server).
@@ -151,6 +193,8 @@ const useQuizStore = create(
           margin: null,
           displayConfidence: null,
           topMatches: null,
+          insight: null,
+          insightStatus: 'idle',
           completedAt: null,
           personalSeed: '',
           dislikedGenres: [],
@@ -205,6 +249,8 @@ const useQuizStore = create(
             archetype,
             runnerUp,
             answers:     Array.isArray(result.answers) ? result.answers : [],
+            insight:     result.insight || null,
+            insightStatus: result.insight ? 'done' : 'idle',
             completedAt: result.completed_at || null,
             hydratedFromServer: true,
           });

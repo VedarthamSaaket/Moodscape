@@ -267,6 +267,7 @@ _RATE_RULES: dict[str, tuple[int, int]] = {
     "/api/similar-tracks":     (20,  60),
     "/api/get-mood-data":      (20,  60),
     "/api/quiz/suggestions":   (30,  60),
+    "/api/quiz/interpret":     (10,  60),
     "/api/youtube/resolve":    (90,  60),
     "/api/images/search":      (60,  60),
     "/api/login/spotify":      (20,  60),

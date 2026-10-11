@@ -26,6 +26,17 @@ SPOTIFY_SCOPES        = os.getenv("SPOTIFY_SCOPES")
 # (/api/youtube/resolve). The app still boots without it — playback simply
 # falls back to "open on Spotify" until a key is provided.
 YOUTUBE_API_KEY       = os.getenv("YOUTUBE_API_KEY")
+GROQ_API_KEY          = os.getenv("GROQ_API_KEY")
+GROQ_MODELS           = [
+    m.strip() for m in os.getenv("GROQ_MODELS", "openai/gpt-oss-120b,openai/gpt-oss-20b,qwen/qwen3.8-27b").split(",")
+    if m.strip()
+]
+NVIDIA_API_KEY        = os.getenv("NVIDIA_API_KEY")
+QUIZ_LLM_BASE_URL     = os.getenv("QUIZ_LLM_BASE_URL", "https://integrate.api.nvidia.com/v1").rstrip("/")
+QUIZ_LLM_MODELS       = [
+    m.strip() for m in os.getenv("QUIZ_LLM_MODELS", "openai/gpt-oss-20b").split(",")
+    if m.strip()
+]
 
 logger = logging.getLogger("moodscape.main")
 if not logger.handlers:

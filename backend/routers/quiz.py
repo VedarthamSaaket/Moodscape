@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 from security import require_session_token
 from database import get_db_connection, release_db_connection
 from config import logger
+from quiz_reader import clean_answers, clean_archetypes, clean_ranking, read_person
 
 
 router = APIRouter()
@@ -43,6 +44,13 @@ class QuizResultPayload(BaseModel):
     scores:          QuizScores
     answers:         list[Any] = Field(default_factory=list)
     completed_at:    Optional[str] = None
+    insight:         Optional[dict] = None
+
+
+class QuizInterpretPayload(BaseModel):
+    archetypes: list[Any] = Field(default_factory=list)
+    answers:    list[Any] = Field(default_factory=list)
+    ranking:    list[Any] = Field(default_factory=list)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -76,6 +84,7 @@ def _ensure_schema() -> None:
                 );
                 """
             )
+            cur.execute("ALTER TABLE quiz_results ADD COLUMN IF NOT EXISTS insight JSONB")
             conn.commit()
         _SCHEMA_INITIALISED = True
         logger.info("[QUIZ] quiz_results table ready")
@@ -94,6 +103,18 @@ def _parse_ts(value: Optional[str]) -> Optional[datetime]:
         return None
 
 
+def _clean_insight(insight: Optional[dict]) -> Optional[dict]:
+    if not isinstance(insight, dict):
+        return None
+    traits = insight.get("traits") if isinstance(insight.get("traits"), list) else []
+    return {
+        "title":       str(insight.get("title") or "")[:60],
+        "read":        str(insight.get("read") or "")[:480],
+        "traits":      [str(t)[:40] for t in traits[:3]],
+        "vibe_prompt": str(insight.get("vibe_prompt") or "")[:300],
+    }
+
+
 def _row_to_result(row: dict) -> dict:
     return {
         "archetype_id":   row["archetype_id"],
@@ -102,6 +123,7 @@ def _row_to_result(row: dict) -> dict:
         "runner_up_name": row.get("runner_up_name"),
         "scores":         row["scores"] or {},
         "answers":        row["answers"] or [],
+        "insight":        row.get("insight"),
         "completed_at":   row["completed_at"].isoformat() if row.get("completed_at") else None,
         "updated_at":     row["updated_at"].isoformat() if row.get("updated_at") else None,
     }
@@ -122,7 +144,7 @@ def get_quiz_result(request: Request):
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute(
                 "SELECT archetype_id, archetype_name, runner_up_id, runner_up_name, "
-                "scores, answers, completed_at, updated_at "
+                "scores, answers, insight, completed_at, updated_at "
                 "FROM quiz_results WHERE user_email = %s",
                 (email,),
             )
@@ -162,8 +184,8 @@ def save_quiz_result(data: QuizResultPayload, request: Request):
                 INSERT INTO quiz_results
                     (user_email, archetype_id, archetype_name,
                      runner_up_id, runner_up_name,
-                     scores, answers, completed_at, updated_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                     scores, answers, insight, completed_at, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
                 ON CONFLICT (user_email) DO UPDATE
                   SET archetype_id   = EXCLUDED.archetype_id,
                       archetype_name = EXCLUDED.archetype_name,
@@ -171,6 +193,7 @@ def save_quiz_result(data: QuizResultPayload, request: Request):
                       runner_up_name = EXCLUDED.runner_up_name,
                       scores         = EXCLUDED.scores,
                       answers        = EXCLUDED.answers,
+                      insight        = EXCLUDED.insight,
                       completed_at   = EXCLUDED.completed_at,
                       updated_at     = NOW()
                 """,
@@ -179,6 +202,7 @@ def save_quiz_result(data: QuizResultPayload, request: Request):
                     runner_up_id, runner_up_name,
                     Json(data.scores.dict()),
                     Json(data.answers or []),
+                    Json(_clean_insight(data.insight)) if data.insight else None,
                     completed_at,
                 ),
             )
@@ -191,6 +215,19 @@ def save_quiz_result(data: QuizResultPayload, request: Request):
         release_db_connection(conn)
 
     return {"message": "Quiz result saved.", "archetype_id": archetype_id}
+
+
+@router.post("/api/quiz/interpret")
+def interpret_quiz(data: QuizInterpretPayload, request: Request):
+    require_session_token(request, lax=True)
+    archetypes = clean_archetypes(data.archetypes)
+    answers = clean_answers(data.answers)
+    ranking = clean_ranking(data.ranking, [a["id"] for a in archetypes])
+    insight = read_person(archetypes, answers, ranking)
+    if not insight:
+        return {"insight": None}
+    logger.info(f"[QUIZ_READER] read produced by {insight.get('model')}")
+    return {"insight": insight}
 
 
 # ─────────────────────────────────────────────────────────────────────────────

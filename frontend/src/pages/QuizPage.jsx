@@ -4,11 +4,16 @@ import useQuizStore from '../store/quizStore.js';
 import usePlayerStore from '../store/playerStore.js';
 import useSavedStore from '../store/savedStore.js';
 import { QUESTIONS, ARCHETYPES } from './quiz/quizData.js';
-import { score } from './quiz/scoreQuiz.js';
+import { score, refine } from './quiz/scoreQuiz.js';
 import VibeMeter from './quiz/VibeMeter.jsx';
 import useQuizImages from './quiz/useQuizImages.js';
 import { API_BASE } from '../config';
 import './QuizPage.css';
+
+const styleVibe = (archetype, insight) => {
+  const personal = (insight?.vibe_prompt || '').trim();
+  return personal ? `${archetype.vibePrompt} ${personal}`.slice(0, 380) : archetype.vibePrompt;
+};
 
 // Phases: intro → question(0..N-1) → result
 function QuizPage() {
@@ -29,10 +34,15 @@ function QuizPage() {
     margin,
     displayConfidence,
     topMatches,
+    insight,
+    insightStatus,
     completedAt,
     personalSeed,
     dislikedGenres,
     recordAnswer,
+    recordText,
+    setInsightStatus,
+    applyInsight,
     finalize,
     reset,
     setPendingStyleSeed,
@@ -65,32 +75,78 @@ function QuizPage() {
     }, 200);
   };
 
+  const requestInsight = async (finalAnswers, result, stamp) => {
+    setInsightStatus('pending');
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 32000);
+    let reading = null;
+    try {
+      const res = await fetch(`${API_BASE}/api/quiz/interpret`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Session-Token': localStorage.getItem('authToken') || '',
+        },
+        signal: controller.signal,
+        body: JSON.stringify({
+          archetypes: ARCHETYPES.map((a) => ({ id: a.id, name: a.name, blurb: a.blurb })),
+          answers: QUESTIONS.map((q) => {
+            const rec = finalAnswers.find((a) => a.questionId === q.id);
+            if (!rec) return null;
+            const opt = q.options?.find((o) => o.id === rec.optionId);
+            return { prompt: q.prompt, label: opt?.label || '', text: rec.text || '' };
+          }).filter(Boolean),
+          ranking: result.ranking.map((r) => ({
+            id: r.archetype.id,
+            share: Math.round(r.confidence * 100),
+          })),
+        }),
+      });
+      if (res.ok) reading = (await res.json())?.insight || null;
+    } catch { /* fall back to the numeric result */ }
+    clearTimeout(timer);
+    applyInsight({
+      insight: reading,
+      refined: reading ? refine(result, reading.scores) : null,
+      completedAt: stamp,
+    });
+  };
+
+  const completeQuiz = (finalAnswers) => {
+    const result = score(finalAnswers);
+    const stamp = finalize({
+      scores:             result.scores,
+      archetype:          result.archetype,
+      runnerUp:           result.runnerUp,
+      confidence:         result.confidence,
+      runnerUpConfidence: result.runnerUpConfidence,
+      margin:             result.margin,
+      displayConfidence:  result.displayConfidence,
+      topMatches:         result.topMatches,
+    });
+    requestInsight(finalAnswers, result, stamp);
+    advance(() => setPhase('seed'));
+  };
+
+  const handleAnswer = (record) => {
+    if (!currentQ) return;
+    const finalAnswers = answers.filter((a) => a.questionId !== currentQ.id);
+    if (record) finalAnswers.push(record);
+    if (qIdx === QUESTIONS.length - 1) completeQuiz(finalAnswers);
+    else advance(() => setQIdx((i) => i + 1));
+  };
+
   const handlePick = (option) => {
     if (!currentQ) return;
     recordAnswer(currentQ.id, option);
+    handleAnswer({ questionId: currentQ.id, optionId: option.id, delta: option.delta });
+  };
 
-    if (qIdx === QUESTIONS.length - 1) {
-      // Compute final scoring against the FULL answer set (including the answer
-      // we just recorded, which isn't yet in `answers` due to React batching).
-      const finalAnswers = [
-        ...answers.filter((a) => a.questionId !== currentQ.id),
-        { questionId: currentQ.id, optionId: option.id, delta: option.delta },
-      ];
-      const result = score(finalAnswers);
-      finalize({
-        scores:             result.scores,
-        archetype:          result.archetype,
-        runnerUp:           result.runnerUp,
-        confidence:         result.confidence,
-        runnerUpConfidence: result.runnerUpConfidence,
-        margin:             result.margin,
-        displayConfidence:  result.displayConfidence,
-        topMatches:         result.topMatches,
-      });
-      advance(() => setPhase('seed'));
-    } else {
-      advance(() => setQIdx((i) => i + 1));
-    }
+  const handleText = (text) => {
+    if (!currentQ) return;
+    const clean = String(text || '').trim();
+    recordText(currentQ.id, clean);
+    handleAnswer(clean ? { questionId: currentQ.id, text: clean } : null);
   };
 
   // Read the latest store snapshot at click-time. State setters from useStore()
@@ -125,7 +181,7 @@ function QuizPage() {
     const style = {
       archetype:      archetype.id,
       name:           archetype.name,
-      vibePrompt:     archetype.vibePrompt,
+      vibePrompt:     styleVibe(archetype, readStore().insight),
       genres:         archetype.genreSeed,
       dislikedGenres: readStore().dislikedGenres || [],
     };
@@ -154,7 +210,7 @@ function QuizPage() {
     const style = {
       archetype:      archetype.id,
       name:           archetype.name,
-      vibePrompt:     archetype.vibePrompt,
+      vibePrompt:     styleVibe(archetype, readStore().insight),
       genres:         archetype.genreSeed,
       dislikedGenres: readStore().dislikedGenres || [],
     };
@@ -164,6 +220,11 @@ function QuizPage() {
     setQuizStyle(style);             // persistent, survives the Spotify redirect
     navigate('/generator');
   };
+
+  useEffect(() => {
+    if (useQuizStore.getState().insightStatus === 'pending') setInsightStatus('failed');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Sync phase if user navigates back here mid-result.
   useEffect(() => {
@@ -188,7 +249,9 @@ function QuizPage() {
             index={qIdx}
             total={QUESTIONS.length}
             selectedId={selectedOption?.id}
+            savedText={answers.find((a) => a.questionId === currentQ.id)?.text || ''}
             onPick={handlePick}
+            onText={handleText}
             onBack={handleBack}
             images={quizImages}
           />
@@ -210,8 +273,19 @@ function QuizPage() {
           />
         )}
 
-        {phase === 'result' && archetype && (
+        {phase === 'result' && archetype && insightStatus === 'pending' && (
+          <div className="quiz-intro quiz-reading">
+            <div className="quiz-intro-eyebrow">Almost there</div>
+            <h1 className="quiz-intro-title">Reading your answers…</h1>
+            <p className="quiz-intro-body">
+              <span className="quiz-spin-ring" /> Putting together who you are as a listener.
+            </p>
+          </div>
+        )}
+
+        {phase === 'result' && archetype && insightStatus !== 'pending' && (
           <ResultView
+            insight={insight}
             archetype={archetype}
             runnerUp={runnerUp}
             scores={scores}
@@ -249,8 +323,8 @@ function Intro({ onStart, hasPrior, onResume }) {
         What <em>vibe</em><br />suits you, really?
       </h1>
       <p className="quiz-intro-body">
-        Eight quick choices. No right answers. At the end, an aesthetic that fits, and a playlist
-        seed shaped for it.
+        {QUESTIONS.length} questions, a few of them personal. No right answers. At the end, a read on
+        who you are as a listener, an aesthetic that fits, and a playlist seed shaped for it.
       </p>
       <div className="quiz-intro-actions">
         <button className="quiz-btn-primary" onClick={onStart}>
@@ -334,8 +408,10 @@ function DislikesView({ initial, onSubmit, onSkip }) {
   );
 }
 
-function QuestionView({ question, index, total, selectedId, onPick, onBack, images }) {
+function QuestionView({ question, index, total, selectedId, savedText, onPick, onText, onBack, images }) {
   const progress = ((index + 1) / total) * 100;
+  const [draft, setDraft] = useState(savedText || '');
+  useEffect(() => { setDraft(savedText || ''); }, [question.id, savedText]);
 
   return (
     <div className="quiz-question">
@@ -349,7 +425,42 @@ function QuestionView({ question, index, total, selectedId, onPick, onBack, imag
       <h2 className="quiz-question-prompt">{question.prompt}</h2>
       <p className="quiz-question-caption">{question.caption}</p>
 
-      {question.kind === 'tile' ? (
+      {question.kind === 'text' ? (
+        <div className="quiz-text-answer">
+          <textarea
+            className="quiz-text-input"
+            rows={3}
+            placeholder={question.placeholder || ''}
+            value={draft}
+            maxLength={question.maxLength || 280}
+            onChange={(e) => setDraft(e.target.value)}
+            autoFocus
+          />
+          <div className="quiz-intro-actions">
+            <button className="quiz-btn-primary" onClick={() => onText(draft)} disabled={!draft.trim()}>
+              Continue
+            </button>
+            <button className="quiz-btn-ghost" onClick={() => onText('')}>
+              Skip
+            </button>
+          </div>
+        </div>
+      ) : question.kind === 'depth' ? (
+        <div className="quiz-depth-list">
+          {question.options.map((opt, i) => (
+            <button
+              key={opt.id}
+              type="button"
+              className={`quiz-depth ${selectedId === opt.id ? 'is-selected' : ''}`}
+              style={{ '--i': i }}
+              onClick={() => onPick(opt)}
+            >
+              <span className="quiz-depth-label">{opt.label}</span>
+              <span className="quiz-depth-whisper">{opt.whisper}</span>
+            </button>
+          ))}
+        </div>
+      ) : question.kind === 'tile' ? (
         <div className="quiz-tile-grid">
           {question.options.map((opt, i) => {
             const imgUrl = images?.[`${question.id}::${opt.id}`] || null;
@@ -406,7 +517,7 @@ function QuestionView({ question, index, total, selectedId, onPick, onBack, imag
   );
 }
 
-function ResultView({ archetype, runnerUp, scores, confidence, margin, displayConfidence, topMatches, personalSeed, onRetake, onUseStyle, onAddSongs, onUseBoth }) {
+function ResultView({ archetype, runnerUp, scores, confidence, margin, displayConfidence, topMatches, insight, personalSeed, onRetake, onUseStyle, onAddSongs, onUseBoth }) {
   const accent = archetype.accent;
   const gradient = `linear-gradient(110deg, ${accent.from} 0%, ${accent.to} 100%)`;
   const textGradient = {
@@ -518,15 +629,15 @@ function ResultView({ archetype, runnerUp, scores, confidence, margin, displayCo
           const m = Math.max(0, Math.min(1, (margin ?? 0) / 0.35));
           pct = Math.round(85 + m * 11);
         }
+        const ratio = confidence > 0 ? 1 - (margin ?? 0) / confidence : 1;
         // A genuine blend — the quiz hovered between two-plus styles. Lower end
         // of the band, framed as "you straddle styles," never as a weak result.
         const blend = Array.isArray(topMatches) && topMatches.length > 1;
-        const m = margin ?? 0;
         const label = blend
           ? 'A blend of styles'
-          : m >= 0.20 ? 'Strong match'
-          : m >= 0.08 ? 'Clear match'
-          :             'Your match';
+          : ratio <= 0.45 ? 'Strong match'
+          : ratio <= 0.70 ? 'Clear match'
+          :                 'Your match';
         return (
           <p className="quiz-result-confidence">
             {`${label} · ${pct}% you`}
@@ -549,6 +660,19 @@ function ResultView({ archetype, runnerUp, scores, confidence, margin, displayCo
 
       <p className="quiz-result-blurb">{archetype.blurb}</p>
 
+      {insight?.read && (
+        <div className="quiz-read-card">
+          <span className="quiz-seed-label">Your read</span>
+          {insight.title && <h2 className="quiz-read-title" style={textGradient}>{insight.title}</h2>}
+          <p className="quiz-read-body">{insight.read}</p>
+          {Array.isArray(insight.traits) && insight.traits.length > 0 && (
+            <div className="quiz-read-traits">
+              {insight.traits.map((t) => <span className="quiz-read-trait" key={t}>{t}</span>)}
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="quiz-meter-wrap">
         <VibeMeter scores={scores} accent={accent} />
       </div>
@@ -556,7 +680,7 @@ function ResultView({ archetype, runnerUp, scores, confidence, margin, displayCo
       <div className="quiz-seed-card">
         <div className="quiz-seed-row">
           <span className="quiz-seed-label">Vibe</span>
-          <span className="quiz-seed-value">{archetype.vibePrompt}</span>
+          <span className="quiz-seed-value">{insight?.vibe_prompt || archetype.vibePrompt}</span>
         </div>
         <div className="quiz-seed-row">
           <span className="quiz-seed-label">Genres</span>
