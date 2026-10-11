@@ -12,7 +12,7 @@
   font-family: var(--font-body);
   color: var(--parch, #dce8f0);
   display: grid;
-  grid-template-columns: 300px 1fr;
+  grid-template-columns: 200px 1fr;
   gap: 36px;
   align-items: start;
 }
