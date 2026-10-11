@@ -4,6 +4,7 @@ uvicorn[standard]
 python-dotenv
 requests
 psycopg2-binary
+google-auth
 bcrypt
 email-validator
 Pillow

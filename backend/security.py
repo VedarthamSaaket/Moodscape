@@ -270,6 +270,7 @@ _RATE_RULES: dict[str, tuple[int, int]] = {
     "/api/forgot-password":    (5,  300),
     "/api/verify-reset-code":  (10,  60),
     "/api/reset-password":     (10,  60),
+    "/api/auth/firebase":      (10,  60),
     "/api/create-playlist":    (30,  60),
     "/api/add-tracks":         (30,  60),
     "/api/similar-tracks":     (20,  60),
@@ -360,6 +361,7 @@ _AUTH_PATHS = frozenset({
     "/api/forgot-password",
     "/api/verify-reset-code",
     "/api/reset-password",
+    "/api/auth/firebase",
 })
 
 def check_bot_signals(request: Request) -> Optional[str]:

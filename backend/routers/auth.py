@@ -1,3 +1,4 @@
+import asyncio
 import random
 import hmac
 import secrets
@@ -9,6 +10,8 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse
+from google.auth.transport import requests as google_requests
+from google.oauth2 import id_token as google_id_token
 
 from security import (
     generate_session_token,
@@ -23,11 +26,13 @@ from spotify import get_spotify_user_profile
 from email_service import send_email, verification_html, reset_code_html, reset_link_html
 from models import (
     UserCreate, UserLogin, VerifyEmail, ResendCode,
-    ForgotPassword, VerifyResetCode, ResetPassword,
+    ForgotPassword, VerifyResetCode, ResetPassword, FirebaseSignin,
 )
-from config import logger, FRONTEND_URL
+from config import logger, FRONTEND_URL, FIREBASE_PROJECT_ID
 
 router = APIRouter()
+
+_google_request = google_requests.Request()
 
 # Set by main.py at startup
 sp_oauth = None
@@ -70,8 +75,13 @@ def _ensure_schema() -> None:
                     ADD COLUMN IF NOT EXISTS reset_code         TEXT,
                     ADD COLUMN IF NOT EXISTS reset_expiry       TIMESTAMPTZ,
                     ADD COLUMN IF NOT EXISTS reset_token        TEXT,
-                    ADD COLUMN IF NOT EXISTS reset_token_expiry TIMESTAMPTZ
+                    ADD COLUMN IF NOT EXISTS reset_token_expiry TIMESTAMPTZ,
+                    ADD COLUMN IF NOT EXISTS firebase_uid       TEXT
                 """
+            )
+            cur.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_firebase_uid "
+                "ON users (firebase_uid) WHERE firebase_uid IS NOT NULL"
             )
             cur.execute(
                 "ALTER TABLE users ALTER COLUMN verify_expiry TYPE TIMESTAMPTZ "
@@ -415,6 +425,77 @@ def signin_user(user: UserLogin, request: Request):
 
     session_token = generate_session_token(user.email)
     return {"message": "Sign in successful.", "session_token": session_token}
+
+
+def _verify_firebase_token(token: str) -> dict:
+    project = FIREBASE_PROJECT_ID
+    claims = google_id_token.verify_firebase_token(token, _google_request, audience=project)
+    if not claims or claims.get("iss") != f"https://securetoken.google.com/{project}":
+        raise ValueError("wrong issuer")
+    if not claims.get("sub") or not claims.get("email"):
+        raise ValueError("token carries no account")
+    if not claims.get("email_verified"):
+        raise ValueError("email not verified")
+    return claims
+
+
+def _upsert_firebase_user(uid: str, email: str) -> bool:
+    conn = get_db_connection()
+    if not conn:
+        raise HTTPException(status_code=500, detail="Database connection failed")
+    is_new = False
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT email FROM users WHERE firebase_uid = %s", (uid,))
+            if cur.fetchone():
+                return False
+
+            cur.execute("SELECT email FROM users WHERE email = %s", (email,))
+            existing = cur.fetchone()
+            if existing:
+                cur.execute(
+                    "UPDATE users SET firebase_uid = %s, is_verified = TRUE WHERE email = %s",
+                    (uid, email),
+                )
+            else:
+                unusable_hash = bcrypt.hashpw(secrets.token_bytes(32), bcrypt.gensalt(rounds=12)).decode()
+                cur.execute(
+                    """
+                    INSERT INTO users (email, password_hash, is_verified, firebase_uid, created_at)
+                    VALUES (%s, %s, TRUE, %s, NOW())
+                    """,
+                    (email, unusable_hash, uid),
+                )
+                is_new = True
+            conn.commit()
+    finally:
+        release_db_connection(conn)
+    return is_new
+
+
+@router.post("/api/auth/firebase")
+async def firebase_signin(data: FirebaseSignin, request: Request):
+    if not FIREBASE_PROJECT_ID:
+        raise HTTPException(status_code=503, detail="Sign-in is not configured yet.")
+    try:
+        claims = await asyncio.to_thread(_verify_firebase_token, data.id_token)
+    except Exception as exc:
+        logger.warning(f"[AUTH] rejected Firebase token: {type(exc).__name__}")
+        record_auth_failure(get_client_ip(request))
+        raise HTTPException(status_code=401, detail="Could not verify your Google sign-in.")
+
+    uid   = claims["sub"]
+    email = claims["email"].strip().lower()
+    is_new = _upsert_firebase_user(uid, email)
+
+    session_token = generate_session_token(email)
+    return {
+        "message": "Signed in.",
+        "session_token": session_token,
+        "email": email,
+        "is_new": is_new,
+        "full_name": claims.get("name"),
+    }
 
 
 @router.get("/api/login/spotify")

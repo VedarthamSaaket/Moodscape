@@ -2,6 +2,7 @@ import React, { useState, useContext, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { AuthContext } from '../AuthContext';
 import { API_BASE } from '../config';
+import GoogleSignInButton from '../components/GoogleSignInButton';
 
 function SignInPage() {
   const { setIsLoggedIn } = useContext(AuthContext);
@@ -126,6 +127,12 @@ function SignInPage() {
           {isLoading ? 'Signing In…' : 'Sign In'}
         </button>
       </form>
+
+      <div className="divider">or</div>
+      <GoogleSignInButton
+        label="Continue with Google"
+        onStatus={(msg, isErr) => { setMessage(msg); setIsError(isErr); }}
+      />
 
       {message && (
         <p className={`message ${isError ? 'error' : 'success'}`}>{message}</p>

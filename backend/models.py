@@ -11,6 +11,10 @@ class UserLogin(BaseModel):
     email:    EmailStr
     password: str
 
+class FirebaseSignin(BaseModel):
+    id_token: str
+    remember: bool = True
+
 class PlaylistRequest(BaseModel):
     moodText:          str
     playlistIntent:    Optional[str]       = None

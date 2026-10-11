@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { API_BASE } from '../config';
+import GoogleSignInButton from '../components/GoogleSignInButton';
 
 function SignUpPage() {
   const navigate = useNavigate();
@@ -111,6 +112,12 @@ function SignUpPage() {
           {isLoading ? 'Creating Account…' : 'Sign Up'}
         </button>
       </form>
+
+      <div className="divider">or</div>
+      <GoogleSignInButton
+        label="Sign up with Google"
+        onStatus={(msg, isErr) => { setMessage(msg); setIsError(isErr); }}
+      />
 
       {message && (
         <>

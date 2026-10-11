@@ -1091,6 +1091,38 @@ button:focus-visible {
   transform: translateY(-1px);
 }
 
+.btn-google {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-body);
+  font-weight: 500;
+  font-size: 0.68rem;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  padding: 13px 24px;
+  border-radius: 11px;
+  border: 1px solid rgba(237, 242, 247, 0.22);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(237, 242, 247, 0.95);
+  cursor: pointer;
+  width: 100%;
+  transition: all .25s var(--ease);
+}
+
+.btn-google:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(237, 242, 247, 0.42);
+  box-shadow: 0 0 22px rgba(237, 242, 247, 0.08);
+  transform: translateY(-1px);
+}
+
+.btn-google:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .home-link {
   font-family: var(--font-body);
   font-size: 0.76rem;

@@ -18,6 +18,9 @@ CURATOR_REFRESH_TOKEN = os.getenv("CURATOR_REFRESH_TOKEN")
 # Public base URL of the frontend, used to build password-reset links sent by
 # email. Defaults to the local dev origin.
 FRONTEND_URL          = os.getenv("FRONTEND_URL", "http://localhost:5173")
+# Firebase project backing Google sign-in. The frontend sends a Google ID
+# token to /api/auth/firebase; the backend checks it against this project.
+FIREBASE_PROJECT_ID   = os.getenv("FIREBASE_PROJECT_ID")
 SPOTIFY_SCOPES        = os.getenv("SPOTIFY_SCOPES")
 # Optional: used only by the in-app YouTube playback resolver
 # (/api/youtube/resolve). The app still boots without it — playback simply
