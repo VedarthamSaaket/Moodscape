@@ -87,6 +87,8 @@ export default function GlobalPlayer() {
   const hostRef        = useRef(null);   // stable wrapper React owns
   const playerRef      = useRef(null);   // YT.Player instance
   const loadedVideoRef = useRef(null);   // videoId currently loaded/cued
+  const loadedTrackRef = useRef(null);   // track id whose video the iframe currently holds
+  const transitionTimerRef = useRef(null);
   const lastErrKeyRef  = useRef(null);   // dedupe onError logs to one per track
   const transitioningRef = useRef(false); // true between currentIndex change and first PLAYING — swallows YT's spurious PAUSED tick on video swap
   const skipTimerRef   = useRef(null);   // pending auto-skip timeout
@@ -158,6 +160,12 @@ export default function GlobalPlayer() {
     const cur = st.queue[st.currentIndex];
     if (!cur) { skipUnplayable(); return; }
     const tid = cur.id;
+    if (loadedTrackRef.current !== tid) return;
+    const stillCurrent = () => {
+      const now = usePlayerStore.getState();
+      const live = now.queue[now.currentIndex];
+      return !!live && live.id === tid;
+    };
 
     let tried = triedRef.current.get(tid);
     if (!tried) { tried = new Set(); triedRef.current.set(tid, tried); }
@@ -178,8 +186,10 @@ export default function GlobalPlayer() {
         `${API_BASE}/api/youtube/resolve?title=${encodeURIComponent(cur.title)}&artist=${encodeURIComponent(cur.artist)}&exclude=${exclude}${dur}`,
         { headers: { 'X-Session-Token': appToken } }
       );
+      if (!stillCurrent()) return;
       if (res.ok) {
         const data = await res.json();
+        if (!stillCurrent()) return;
         if (Array.isArray(data.candidates)) altsRef.current.set(tid, data.candidates);
         const fresh = (data.candidates || []).filter((id) => !tried.has(id));
         const pick = (data.videoId && !tried.has(data.videoId)) ? data.videoId : (fresh[0] || null);
@@ -187,6 +197,7 @@ export default function GlobalPlayer() {
       }
     } catch { /* fall through to skip */ }
 
+    if (!stillCurrent()) return;
     skipUnplayable();
   }, [skipUnplayable, setVideoId]);
 
@@ -210,10 +221,17 @@ export default function GlobalPlayer() {
             if (e.data === S.ENDED) {
               const st0 = usePlayerStore.getState();
               const ended = st0.queue[st0.currentIndex];
+              if (!ended || loadedTrackRef.current !== ended.id) return;
               if (ended) sendTelemetry('complete', ended, { elapsedMs: Date.now() - playStartRef.current });
               next();
             }
             else if (e.data === S.PLAYING) {
+              const st2 = usePlayerStore.getState();
+              const live = st2.queue[st2.currentIndex];
+              if (!live || loadedTrackRef.current !== live.id) {
+                try { playerRef.current && playerRef.current.stopVideo(); } catch { /* ignore */ }
+                return;
+              }
               failCountRef.current = 0;
               transitioningRef.current = false;
               stopRadioIfOn();
@@ -234,6 +252,9 @@ export default function GlobalPlayer() {
               // YT emits a spurious PAUSED tick when swapping videos via
               // loadVideoById; ignore it so next/prev don't visibly pause.
               if (transitioningRef.current) return;
+              const st3 = usePlayerStore.getState();
+              const live = st3.queue[st3.currentIndex];
+              if (!live || loadedTrackRef.current !== live.id) return;
               setIsPlaying(false);
             }
           },
@@ -244,6 +265,7 @@ export default function GlobalPlayer() {
             const code = e && e.data;
             const st = usePlayerStore.getState();
             const cur = st.queue[st.currentIndex];
+            if (!cur || loadedTrackRef.current !== cur.id) return;
             // Log only the FIRST error per track — subsequent retries are expected
             // noise (code=150 fallthrough). Quiets the console without losing signal.
             const trackKey = cur ? `${cur.title}|${cur.artist}` : '?';
@@ -268,6 +290,12 @@ export default function GlobalPlayer() {
   const ensureAndLoad = useCallback(async () => {
     const player = playerRef.current;
     if (!player || !isReady || !current) return;
+    const trackId = current.id;
+    const stillCurrent = () => {
+      const st = usePlayerStore.getState();
+      const live = st.queue[st.currentIndex];
+      return !!live && live.id === trackId;
+    };
 
     let videoId = current.videoId;
     if (!videoId) {
@@ -279,8 +307,10 @@ export default function GlobalPlayer() {
           `${API_BASE}/api/youtube/resolve?title=${encodeURIComponent(current.title)}&artist=${encodeURIComponent(current.artist)}${dur}`,
           { headers: { 'X-Session-Token': appToken } }
         );
+        if (!stillCurrent()) return;
         if (res.ok) {
           const data = await res.json();
+          if (!stillCurrent()) return;
           videoId = data.videoId || null;
           if (Array.isArray(data.candidates)) altsRef.current.set(current.id, data.candidates);
           // Stash the resolver's confidence on the track + drive the badge.
@@ -299,12 +329,17 @@ export default function GlobalPlayer() {
       setConfidence(conf);
     }
 
+    if (!stillCurrent()) return;
     if (!videoId) { setStatus('unavailable'); skipUnplayable(); return; }
     setStatus('');
 
-    if (loadedVideoRef.current !== videoId) {
+    if (loadedVideoRef.current !== videoId || loadedTrackRef.current !== trackId) {
       loadedVideoRef.current = videoId;
+      loadedTrackRef.current = trackId;
       const playing = usePlayerStore.getState().isPlaying;
+      transitioningRef.current = true;
+      clearTimeout(transitionTimerRef.current);
+      transitionTimerRef.current = setTimeout(() => { transitioningRef.current = false; }, 4000);
       try {
         if (playing) player.loadVideoById(videoId);   // autoplays (after a gesture)
         else player.cueVideoById(videoId);            // reload → cued, paused
@@ -333,6 +368,7 @@ export default function GlobalPlayer() {
       const p = playerRef.current;
       try { p && p.stopVideo && p.stopVideo(); } catch { /* ignore */ }
       loadedVideoRef.current = null;        // force loadVideoById on the new pick
+      loadedTrackRef.current = null;
       setProgress({ cur: 0, dur: 0 });      // bar resets immediately, no leftover elapsed
     }
 
@@ -340,12 +376,7 @@ export default function GlobalPlayer() {
     playEventSentRef.current = null;     // arm "play" telemetry for the new track
 
     clearTimeout(skipTimerRef.current); // drop any stale skip from a prior error
-    transitioningRef.current = true;    // swallow YT's transient PAUSED on video swap
     ensureAndLoad();
-    // Safety: clear the flag after 4s even if PLAYING never fires (resolve failed,
-    // network stall) so a real user pause later still registers.
-    const t = setTimeout(() => { transitioningRef.current = false; }, 4000);
-    return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentIndex, isReady, current?.videoId]);
 
@@ -353,6 +384,7 @@ export default function GlobalPlayer() {
   useEffect(() => {
     const player = playerRef.current;
     if (!player || !isReady || !current) return;
+    if (loadedTrackRef.current !== current.id) return;
     try {
       if (isPlaying) player.playVideo();
       else player.pauseVideo();
@@ -403,8 +435,9 @@ export default function GlobalPlayer() {
   const togglePlay = () => {
     const player = playerRef.current;
     if (!player || !current) return;
-    if (isPlaying) { try { player.pauseVideo(); } catch {} setIsPlaying(false); }
-    else { stopRadioIfOn(); try { player.playVideo(); } catch {} setIsPlaying(true); }
+    const loaded = loadedTrackRef.current === current.id;
+    if (isPlaying) { try { loaded && player.pauseVideo(); } catch { /* ignore */ } setIsPlaying(false); }
+    else { stopRadioIfOn(); try { loaded && player.playVideo(); } catch { /* ignore */ } setIsPlaying(true); }
   };
 
   // Hard stop: actually halt the iframe audio, then clear the queue. (clearQueue
@@ -414,6 +447,7 @@ export default function GlobalPlayer() {
     const player = playerRef.current;
     try { player && player.stopVideo && player.stopVideo(); } catch { /* ignore */ }
     loadedVideoRef.current = null;
+    loadedTrackRef.current = null;
     clearQueue();
   };
 
