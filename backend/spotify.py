@@ -1,14 +1,16 @@
+import re
 import time
 import base64
 import random
 import threading
+import unicodedata
 from typing import Optional
 from concurrent.futures import as_completed, TimeoutError as FutureTimeoutError
 
 import requests
 from fastapi import HTTPException
 
-from config import logger, SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET
+from config import logger, SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET, LANGUAGE_ALIASES
 from mood_engine import (
     build_search_queries, detect_indian_language, parse_language,
     DeduplicationState, _GLOBAL_EXECUTOR,
@@ -95,6 +97,7 @@ def normalise_track(t: dict) -> dict:
         "uri":        t.get("uri", ""),
         "artistId":   artist_id,
         "artistIds":  artist_ids,
+        "artistNames": [a.get("name", "") for a in (t.get("artists") or []) if isinstance(a, dict)],
         "durationMs": t.get("duration_ms") or 0,
         # Spotify's `explicit` flag — true if the track has Parental Advisory
         # ("E" badge in the Spotify UI). Used by the explicit-content filter
@@ -229,9 +232,42 @@ def search_tracks_by_query(token: str, query: str, market: str, limit: int = 30,
         params={"q": query, "type": "track", "limit": min(limit, 50), "offset": offset, "market": market},
         timeout=6,
     )
+    if res.status_code == 429:
+        try:
+            wait = float(res.headers.get("Retry-After", "1"))
+        except ValueError:
+            wait = 1.0
+        logger.warning(f"[SPOTIFY] search rate limited, retry-after {wait:.0f}s")
+        if wait <= 3:
+            time.sleep(wait)
+            res = requests.get(
+                "https://api.spotify.com/v1/search",
+                headers={"Authorization": f"Bearer {token}"},
+                params={"q": query, "type": "track", "limit": min(limit, 50), "offset": offset, "market": market},
+                timeout=6,
+            )
     if res.status_code == 200:
         return res.json().get("tracks", {}).get("items", [])
     return []
+
+
+def fetch_tracks_by_uri(token: str, uris: list) -> list:
+    ids = [u.split(":", 2)[2] for u in uris if u.startswith("spotify:track:")][:50]
+    if not ids:
+        return []
+    try:
+        res = requests.get(
+            "https://api.spotify.com/v1/tracks",
+            headers={"Authorization": f"Bearer {token}"},
+            params={"ids": ",".join(ids)},
+            timeout=8,
+        )
+    except Exception as exc:
+        logger.warning(f"[SPOTIFY] pinned track lookup failed: {exc}")
+        return []
+    if res.status_code != 200:
+        return []
+    return [normalise_track(t) for t in (res.json().get("tracks") or []) if t]
 
 
 def search_artist(token: str, name: str, market: str) -> Optional[dict]:
@@ -388,6 +424,157 @@ def verify_playlist_ownership(access_token: str, playlist_id: str, spotify_user_
         raise HTTPException(status_code=403, detail="You do not own this playlist.")
 
 
+LANGUAGE_TAG_MARKERS = {
+    "korean":    ["k-", "korean"],
+    "japanese":  ["j-", "japanese", "anime", "city pop", "vocaloid", "shibuya", "enka"],
+    "hindi":     ["bollywood", "hindi", "filmi", "desi", "indian", "sufi", "ghazal", "qawwali"],
+    "tamil":     ["tamil", "kollywood"],
+    "telugu":    ["telugu", "tollywood"],
+    "kannada":   ["kannada", "sandalwood"],
+    "malayalam": ["malayalam", "mollywood"],
+    "punjabi":   ["punjabi", "bhangra"],
+    "bengali":   ["bengali", "bangla"],
+    "marathi":   ["marathi"],
+    "gujarati":  ["gujarati", "garba"],
+}
+
+LANGUAGE_SCRIPTS = {
+    "korean":    re.compile(r"[\uac00-\ud7af\u1100-\u11ff]"),
+    "japanese":  re.compile(r"[\u3040-\u30ff]"),
+    "hindi":     re.compile(r"[\u0900-\u097f]"),
+    "marathi":   re.compile(r"[\u0900-\u097f]"),
+    "tamil":     re.compile(r"[\u0b80-\u0bff]"),
+    "telugu":    re.compile(r"[\u0c00-\u0c7f]"),
+    "kannada":   re.compile(r"[\u0c80-\u0cff]"),
+    "malayalam": re.compile(r"[\u0d00-\u0d7f]"),
+    "punjabi":   re.compile(r"[\u0a00-\u0a7f]"),
+    "bengali":   re.compile(r"[\u0980-\u09ff]"),
+    "gujarati":  re.compile(r"[\u0a80-\u0aff]"),
+}
+
+_ARTIST_SPLIT_RE = re.compile(r"\s*(?:,|&|\bfeat\.?|\bft\.?|\bfeaturing\b|\bwith\b|\bx\b|/)\s*", re.IGNORECASE)
+
+
+def _fold(text: str) -> str:
+    decomposed = unicodedata.normalize("NFKD", str(text or "").lower())
+    return "".join(ch for ch in decomposed if ch.isalnum())
+
+
+def _lead_artist(name: str) -> str:
+    return _ARTIST_SPLIT_RE.split(name or "")[0].strip() or (name or "")
+
+
+def _artist_matches(track: dict, wanted: str) -> bool:
+    targets = [_fold(p) for p in _ARTIST_SPLIT_RE.split(wanted or "") if _fold(p)]
+    names = [_fold(a.get("name", "")) for a in (track.get("artists") or [])]
+    return any(t and n and (t in n or n in t) for t in targets for n in names)
+
+
+def _find_planned_song(token: str, song: dict, market: str) -> Optional[dict]:
+    lead = _lead_artist(song["artist"])
+    title = song["title"].replace('"', "")
+    try:
+        hits = search_tracks_by_query(token, f'track:"{title}" artist:"{lead}"', market, limit=5)
+    except Exception as exc:
+        logger.warning(f"[CURATOR] song lookup failed: {exc}")
+        return None
+    for t in hits:
+        if _artist_matches(t, song["artist"]) and _fold(title)[:12] in _fold(t.get("name", "")):
+            return normalise_track(t)
+    return None
+
+
+def _find_artist_track(token: str, artist: str, market: str) -> Optional[dict]:
+    try:
+        hits = search_tracks_by_query(token, f'artist:"{artist}"', market, limit=6)
+    except Exception as exc:
+        logger.warning(f"[CURATOR] artist lookup failed: {exc}")
+        return None
+    matching = [t for t in hits if _artist_matches(t, artist)]
+    return normalise_track(random.choice(matching[:4])) if matching else None
+
+
+def _tags_of(track: dict, genres_by_artist: dict) -> list:
+    ids = [a for a in (track.get("artistIds") or [track.get("artistId")]) if a]
+    return [tag for a in ids for tag in genres_by_artist.get(a, ())]
+
+
+def _filter_by_tag_markers(tracks: list, token: str, markers: list, script=None) -> list:
+    if not tracks or not markers:
+        return tracks
+    ids = [a for t in tracks for a in (t.get("artistIds") or [t.get("artistId")]) if a]
+    genres_by_artist = fetch_artist_genres_batch(token, ids)
+    kept = [
+        t for t in tracks
+        if (script and script.search(f"{t.get('title', '')} {t.get('artist', '')}"))
+        or any(
+            tag.startswith(m) or f" {m}" in tag if m.endswith("-") else m in tag
+            for tag in _tags_of(t, genres_by_artist) for m in markers
+        )
+    ]
+    if len(kept) < len(tracks):
+        logger.info(f"[CURATOR] tag check kept {len(kept)} of {len(tracks)} track(s)")
+    return kept
+
+
+def fetch_planned_tracks(token: str, plan: dict, market: str, needed: int,
+                         dedup: DeduplicationState, keep, exclusions,
+                         markers: Optional[list] = None, script=None) -> list:
+    out: list = []
+
+    def collect(found: list) -> list:
+        fresh = []
+        for t in _filter_by_tag_markers([t for t in found if t], token, markers or [], script):
+            uri, artist = t.get("uri", ""), t.get("artist", "")
+            if uri and dedup.is_allowed(uri, artist) and keep(t):
+                dedup.register(uri, artist)
+                fresh.append(t)
+        return apply_exclusions(fresh, token, exclusions)
+
+    def run(fn, items) -> list:
+        futures = [_GLOBAL_EXECUTOR.submit(fn, token, item, market) for item in items]
+        results = []
+        for future in futures:
+            try:
+                results.append(future.result(timeout=12))
+            except Exception:
+                results.append(None)
+        return results
+
+    songs = plan.get("songs") or []
+    missed: list = []
+    if songs:
+        results = run(_find_planned_song, songs)
+        missed = [_lead_artist(s["artist"]) for s, t in zip(songs, results) if not t]
+        out.extend(collect(results))
+        logger.info(
+            f"[CURATOR] planned {len(songs)} song(s), found {len(songs) - len(missed)}, kept {len(out)}"
+        )
+
+    if len(out) < needed:
+        names = list(dict.fromkeys(a for a in (plan.get("artists") or []) + missed if a))
+        names = [a for a in names if a.lower().strip() not in dedup.seen_artists]
+        if names:
+            out.extend(collect(run(_find_artist_track, names[: (needed - len(out)) * 2 + 4])))
+
+    year = plan.get("year")
+    for genre in (plan.get("genres") or []):
+        if len(out) >= needed:
+            break
+        if exclusions and exclusions.matches_query_text(genre):
+            continue
+        query = f'genre:"{genre}"' + (f" year:{year}" if year else "")
+        try:
+            hits = [normalise_track(t) for t in search_tracks_by_query(token, query, market, limit=40)]
+        except Exception as exc:
+            logger.warning(f"[CURATOR] genre lookup failed: {exc}")
+            continue
+        random.shuffle(hits)
+        out.extend(collect(_filter_by_tag_markers(hits, token, [genre])))
+
+    return out
+
+
 def get_recommendations_for_bucket(
     token:              str,
     mood_profile:       dict,
@@ -399,11 +586,15 @@ def get_recommendations_for_bucket(
     dedup:              DeduplicationState,
     movie_name:         Optional[str] = None,
     exclusions:         Optional[Exclusions] = None,
+    plan:               Optional[dict] = None,
 ) -> list:
     market     = lang_cfg.get("market", "US")
     all_tracks = []
     keep       = make_track_filter(exclusions)
     strict     = bool(exclusions) and exclusions.requires_genre_tags
+    lang_key   = LANGUAGE_ALIASES.get((selected_languages or ["English"])[0].lower(), "english")
+    markers    = LANGUAGE_TAG_MARKERS.get(lang_key, [])
+    script     = LANGUAGE_SCRIPTS.get(lang_key)
 
     if movie_name and indian_lang:
         raw = search_movie_album(token, movie_name, indian_lang)
@@ -418,11 +609,22 @@ def get_recommendations_for_bucket(
         if len(all_tracks) >= track_count:
             return all_tracks[:track_count]
 
+    if plan:
+        planned = fetch_planned_tracks(
+            token, plan, market, track_count - len(all_tracks), dedup, keep, exclusions,
+            markers=markers, script=script,
+        )
+        random.shuffle(planned)
+        all_tracks.extend(planned)
+        if len(all_tracks) >= track_count:
+            return all_tracks[:track_count]
+
     queries = build_search_queries(
         mood_profile, lang_cfg, indian_lang, selected_genres, selected_languages,
         exclusions=exclusions,
     )
     logger.info(f"[QUERIES] {queries[:6]}")
+    curated = len(all_tracks)
 
     def fetch_query(q: str, offset: int) -> list:
         try:
@@ -461,10 +663,12 @@ def get_recommendations_for_bucket(
             logger.warning("[TIMEOUT] get_recommendations_for_bucket timed out after 15s")
         if not pool:
             break
-        all_tracks.extend(apply_exclusions(pool, token, exclusions, strict=strict))
+        pool = apply_exclusions(pool, token, exclusions, strict=strict)
+        all_tracks.extend(_filter_by_tag_markers(pool, token, markers, script))
 
-    random.shuffle(all_tracks)
-    return all_tracks[:track_count]
+    filler = all_tracks[curated:]
+    random.shuffle(filler)
+    return (all_tracks[:curated] + filler)[:track_count]
 
 
 def get_recommendations(

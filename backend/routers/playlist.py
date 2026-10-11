@@ -16,7 +16,7 @@ from spotify import (
     normalise_track, search_tracks_by_query, search_movie_album,
     get_recommendations, get_recommendations_for_bucket, get_app_token,
     search_artist, get_artist_top_tracks, search_actor_songs,
-    classify_film_vs_indie, filter_tracks_by_vibe, apply_exclusions,
+    classify_film_vs_indie, filter_tracks_by_vibe, apply_exclusions, fetch_tracks_by_uri,
 )
 from mood_engine import parse_language
 from curator import (
@@ -28,6 +28,7 @@ from models import (
 )
 from exclusions import build_exclusions, parse_dislikes_from_text
 from sound_seeds import detect_sound_seeds
+from curation import plan_playlist
 
 router = APIRouter()
 
@@ -46,7 +47,7 @@ def _lang_display_for(canonical_key: str, selected_langs: list) -> str:
 def _fetch_indian_film_indie_mix(
     token, mood_text, mood_profile, lang_cfg, indian_lang,
     selected_genres, lang_list, bucket_count, dedup, exclusions,
-    ratio_film: float = 0.55,
+    ratio_film: float = 0.55, plan=None,
 ):
     """Return ~ratio_film film-tagged tracks + (1-ratio_film) indie tracks
     for one Indian-language bucket. Over-fetches the pool, splits via
@@ -62,7 +63,7 @@ def _fetch_indian_film_indie_mix(
     pool = get_recommendations_for_bucket(
         token, mood_profile, lang_cfg, indian_lang,
         selected_genres, lang_list, over_fetch, dedup,
-        exclusions=exclusions,
+        exclusions=exclusions, plan=plan,
     )
 
     film, indie = classify_film_vs_indie(pool, token)
@@ -121,6 +122,7 @@ def create_playlist(data: PlaylistRequest, request: Request):
         disliked_raw, mood_text,
         explicit_filter=bool(getattr(data, "excludeExplicit", False)),
         extra_texts=[intent] if intent else None,
+        interpret=True,
     )
     if intent:
         _, intent = parse_dislikes_from_text(intent)
@@ -327,9 +329,21 @@ def create_playlist(data: PlaylistRequest, request: Request):
                 for i, l in enumerate(selected_langs):
                     buckets.append((l, per + (1 if i < rem else 0)))
 
+            excluded_terms = sorted(exclusions.keywords) if exclusions else []
+            if exclusions and exclusions.explicit:
+                excluded_terms.append("explicit lyrics")
+            playlist_plan = plan_playlist(
+                mood_text, intent,
+                {name: count for name, count in buckets if count > 0},
+                selected_genres, excluded_terms, data.filmIndustry,
+            ) or {}
+
             for lang_name, bucket_count in buckets:
                 if bucket_count <= 0:
                     continue
+                bucket_plan = (playlist_plan.get("languages") or {}).get(lang_name)
+                if bucket_plan:
+                    bucket_plan = {**bucket_plan, "year": playlist_plan.get("year")}
                 lang_cfg    = parse_language(lang_name)
                 indian_lang = detect_indian_language("", data.filmIndustry, [lang_name])
                 this_lang_key = LANGUAGE_ALIASES.get(lang_name.lower(), lang_name.lower())
@@ -341,13 +355,13 @@ def create_playlist(data: PlaylistRequest, request: Request):
                     fetched = _fetch_indian_film_indie_mix(
                         access_token, mood_text, mood_profile, lang_cfg,
                         indian_lang, selected_genres, [lang_name], bucket_count,
-                        dedup2, exclusions, ratio_film=0.55,
+                        dedup2, exclusions, ratio_film=0.55, plan=bucket_plan,
                     )
                 else:
                     fetched = get_recommendations_for_bucket(
                         access_token, mood_profile, lang_cfg, indian_lang,
                         selected_genres, [lang_name], bucket_count, dedup2,
-                        exclusions=exclusions,
+                        exclusions=exclusions, plan=bucket_plan,
                     )
                 for t in fetched:
                     uri = t.pop("uri", "")
@@ -365,6 +379,11 @@ def create_playlist(data: PlaylistRequest, request: Request):
                 pinned_clean.append(u)
         if pinned_clean:
             track_uris = pinned_clean + track_uris
+            pinned_details = [
+                {k: v for k, v in t.items() if k != "uri"}
+                for t in fetch_tracks_by_uri(access_token, pinned_clean)
+            ]
+            all_tracks = pinned_details + all_tracks
             logger.info(f"[PINNED] prepending {len(pinned_clean)} pinned track(s) from quiz")
 
         if not all_tracks and not pinned_clean:
@@ -456,6 +475,7 @@ def similar_tracks(data: SimilarTracksRequest, request: Request):
         disliked_raw, safe_mood,
         explicit_filter=bool(data.exclude_explicit),
         extra_texts=[safe_intent] if safe_intent else None,
+        interpret=True,
     )
     if safe_intent:
         _, safe_intent = parse_dislikes_from_text(safe_intent)
@@ -661,7 +681,7 @@ def quiz_suggestions(data: SuggestionsRequest, request: Request):
         for g in (data.dislikedGenres or [])
         if isinstance(g, str) and g.strip()
     ]
-    exclusions, _ = build_exclusions(disliked_raw, "")
+    exclusions, _ = build_exclusions(disliked_raw, "", interpret=True)
     archetype_seeds = [q for q in archetype_seeds if not exclusions.matches_query_text(q)]
 
     mood_profile = parse_mood_profile(mood_text, None)
