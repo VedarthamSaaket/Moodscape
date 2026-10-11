@@ -259,7 +259,7 @@ function GenrePillSelector({ label, options, selected, onChange }) {
   );
 }
 
-function SuggestButton({ track, playlistId, onAdded, moodText, selectedLanguages, selectedGenres }) {
+function SuggestButton({ track, playlistId, onAdded, moodText, selectedLanguages, selectedGenres, dislikedGenres, excludeExplicit }) {
   const [state, setState] = useState('idle');
 
   const handleClick = async () => {
@@ -281,6 +281,8 @@ function SuggestButton({ track, playlistId, onAdded, moodText, selectedLanguages
           playlist_intent: moodText || '',
           language: selectedLanguages?.[0] || null,
           genre: selectedGenres?.[0] || null,
+          disliked_genres: dislikedGenres || [],
+          exclude_explicit: !!excludeExplicit,
           ignored_uris: Array.from(window.ignoredTrackUris || new Set())
         }),
       });
@@ -315,17 +317,13 @@ function SuggestButton({ track, playlistId, onAdded, moodText, selectedLanguages
   );
 }
 
-// Split a free-text dislikes string into normalised atoms. Kept loose enough
-// to accept commas, slashes, "and"/"or"/"nor" connectors, or semicolons — the
-// backend `exclusions` module re-canonicalises each atom against its synonym
-// table, so we don't need to be clever here.
 function parseDislikesField(raw) {
   if (!raw) return [];
-  const parts = String(raw).split(/\s*(?:,|\/|\band\b|\bor\b|\bnor\b|;)\s*/i);
+  const parts = String(raw).split(/\s*(?:,|\/|\band\b|\bor\b|\bnor\b|;|\n)\s*/i);
   const cleaned = parts
-    .map((s) => s.trim().toLowerCase())
-    .filter((s) => s.length > 0 && s.length <= 40);
-  return Array.from(new Set(cleaned)).slice(0, 10);
+    .map((s) => s.trim().toLowerCase().slice(0, 80).trim())
+    .filter((s) => s.length > 0);
+  return Array.from(new Set(cleaned)).slice(0, 20);
 }
 
 // Chip-style multi-entry input. Type a name (multi-word OK), press Enter
@@ -928,6 +926,8 @@ export default function GeneratorPage() {
                     moodText={moodText}
                     selectedLanguages={languages}
                     selectedGenres={genres}
+                    dislikedGenres={parseDislikesField(dislikedText)}
+                    excludeExplicit={excludeExplicit}
                   />
                 </li>
               ))}

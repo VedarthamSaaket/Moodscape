@@ -136,10 +136,9 @@ def build_search_queries(
         """Pass-through filter — keep the query only if exclusions don't hit."""
         return not excl.matches_query_text(text)
 
-    def _add(items):
-        for q in items:
-            if q and _ok(q):
-                queries.append(q)
+    def _add(items, limit=None):
+        allowed = [q for q in items if q and _ok(q)]
+        queries.extend(allowed if limit is None else allowed[:limit])
 
     genre_keys = [
         g.lower().replace(" / ", " ").replace("/", " ").replace("-", " ").strip()
@@ -168,7 +167,7 @@ def build_search_queries(
             for gk in genre_keys:
                 if not _ok(gk):
                     continue
-                _add(get_lang_genre_queries(lk, gk)[:3])
+                _add(get_lang_genre_queries(lk, gk), 3)
 
     if indian_lang and indian_lang in INDIAN_LANG_QUERY_BANKS and _ok(indian_lang):
         lang_bank = INDIAN_LANG_QUERY_BANKS[indian_lang]
@@ -186,8 +185,8 @@ def build_search_queries(
                 or film_qs[:4]
             )
 
-        _add(film_qs[:5])
-        _add(indie_qs[:2])
+        _add(film_qs, 5)
+        _add(indie_qs, 2)
 
     if genre_keys:
         for gk in genre_keys:
@@ -195,14 +194,14 @@ def build_search_queries(
                 continue
             bank = GENRE_QUERY_BANKS.get(gk, [])
             if bank:
-                _add(bank[:6])
+                _add(bank, 6)
 
     # Dynamic bank-skip pass for the FULL GENRE_QUERY_BANKS table: if ANY
     # query string in a bank matches an exclusion keyword (or the bank key
     # itself does), that bank is poisoned and we don't draw from it even as a
     # mood fallback. We rebuild MOOD_QUERY_BANKS' picks the same way.
     mood_bank = MOOD_QUERY_BANKS.get(emotion, MOOD_QUERY_BANKS.get("chill", []))
-    _add(mood_bank[:6])
+    _add(mood_bank, 6)
 
     # Final dynamic guard: drop any built query that even names a disliked
     # term as a substring (mood-bank entries are short generic strings, but
@@ -210,19 +209,22 @@ def build_search_queries(
     if excl:
         queries = [q for q in queries if _ok(q)]
 
-    if intent == "workout":
-        queries.insert(0, "high energy underground metal rap")
-        queries.insert(0, "workout hardcore punk metal")
-    elif intent == "study":
-        queries.insert(0, "focus ambient instrumental study")
-        queries.insert(0, "lofi study music underground")
-    elif intent == "sleep":
-        queries.insert(0, "sleep ambient drone")
-        queries.insert(0, "sleep music calm neoclassical")
-    elif intent == "party":
-        queries.insert(0, "party indie dance underground")
-    elif intent == "drive":
-        queries.insert(0, "night drive indie synth")
+    if excl and len(queries) < 4:
+        for other, bank in MOOD_QUERY_BANKS.items():
+            if other == emotion or not _ok(other):
+                continue
+            _add(bank, 2)
+            if len(queries) >= 8:
+                break
+
+    intent_queries = {
+        "workout": ["workout hardcore punk metal", "high energy underground metal rap"],
+        "study":   ["lofi study music underground", "focus ambient instrumental study"],
+        "sleep":   ["sleep music calm neoclassical", "sleep ambient drone"],
+        "party":   ["party indie dance underground"],
+        "drive":   ["night drive indie synth"],
+    }
+    queries = [q for q in intent_queries.get(intent, []) if _ok(q)] + queries
 
     seen  = set()
     final = []

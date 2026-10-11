@@ -72,14 +72,20 @@ def get_spotify_user_profile(token: str):
     return res.json()
 
 
+def _artist_ids_of(t: dict) -> list:
+    artists = t.get("artists")
+    if not isinstance(artists, list):
+        return []
+    return [a.get("id") for a in artists if isinstance(a, dict) and a.get("id")]
+
+
 def normalise_track(t: dict) -> dict:
     album_images = t.get("album", {}).get("images", []) if "album" in t else []
     # Stash the primary artist id so a later batched `/v1/artists` call can
     # fetch genre tags for the dynamic exclusion filter. Frontend ignores
     # unknown fields.
-    artist_id = ""
-    if t.get("artists") and isinstance(t["artists"], list) and t["artists"]:
-        artist_id = t["artists"][0].get("id", "") or ""
+    artist_ids = _artist_ids_of(t)
+    artist_id = artist_ids[0] if artist_ids else ""
     return {
         "title":      t["name"],
         "artist":     t["artists"][0]["name"] if t.get("artists") else "Unknown",
@@ -88,6 +94,7 @@ def normalise_track(t: dict) -> dict:
         "previewUrl": t.get("preview_url"),
         "uri":        t.get("uri", ""),
         "artistId":   artist_id,
+        "artistIds":  artist_ids,
         "durationMs": t.get("duration_ms") or 0,
         # Spotify's `explicit` flag — true if the track has Parental Advisory
         # ("E" badge in the Spotify UI). Used by the explicit-content filter
@@ -104,22 +111,48 @@ _artist_genre_cache: dict[str, tuple] = {}
 _artist_genre_lock = threading.Lock()
 
 
+def _fetch_artist_genres_chunk(token: str, chunk: list) -> dict[str, tuple]:
+    for attempt in range(2):
+        try:
+            res = requests.get(
+                "https://api.spotify.com/v1/artists",
+                headers={"Authorization": f"Bearer {token}"},
+                params={"ids": ",".join(chunk)},
+                timeout=8,
+            )
+        except Exception as exc:
+            logger.warning(f"[ARTIST_GENRES] fetch error: {exc}")
+            break
+        if res.status_code == 200:
+            found: dict[str, tuple] = {}
+            for art in ((res.json() or {}).get("artists") or []):
+                if art and art.get("id"):
+                    found[art["id"]] = tuple(g.lower() for g in (art.get("genres") or []))
+            return found
+        logger.warning(f"[ARTIST_GENRES] HTTP {res.status_code}: {res.text[:120]}")
+        if res.status_code == 429 and attempt == 0:
+            try:
+                wait = float(res.headers.get("Retry-After", "1"))
+            except ValueError:
+                wait = 1.0
+            time.sleep(min(wait, 3.0))
+            continue
+        break
+    return {}
+
+
 def fetch_artist_genres_batch(token: str, artist_ids: list) -> dict[str, tuple]:
-    """
-    Batch-fetch Spotify's `genres` array for each artist id. Returns
-    {artist_id: (genre_tag, ...)}. Empty tuple for artists Spotify has no
-    genre tags for. Chunked at 50 ids per request (Spotify's hard max for the
-    `/v1/artists?ids=` endpoint). Caches results in-process.
-    """
     out: dict[str, tuple] = {}
     if not artist_ids:
         return out
 
     to_fetch: list = []
+    seen: set = set()
     with _artist_genre_lock:
         for aid in artist_ids:
-            if not aid:
+            if not aid or aid in seen:
                 continue
+            seen.add(aid)
             cached = _artist_genre_cache.get(aid)
             if cached is not None:
                 out[aid] = cached
@@ -129,82 +162,71 @@ def fetch_artist_genres_batch(token: str, artist_ids: list) -> dict[str, tuple]:
     if not to_fetch:
         return out
 
-    seen: set = set()
-    deduped = [a for a in to_fetch if not (a in seen or seen.add(a))]
-
-    for i in range(0, len(deduped), 50):
-        chunk = deduped[i:i + 50]
+    chunks = [to_fetch[i:i + 50] for i in range(0, len(to_fetch), 50)]
+    futures = [_GLOBAL_EXECUTOR.submit(_fetch_artist_genres_chunk, token, c) for c in chunks]
+    for future in futures:
         try:
-            res = requests.get(
-                "https://api.spotify.com/v1/artists",
-                headers={"Authorization": f"Bearer {token}"},
-                params={"ids": ",".join(chunk)},
-                timeout=8,
-            )
-            if res.status_code != 200:
-                logger.warning(f"[ARTIST_GENRES] HTTP {res.status_code}: {res.text[:120]}")
-                # Cache empty for this chunk so we don't re-hit a failing call
-                # in a loop; the worst case is we filter less for these ids.
-                with _artist_genre_lock:
-                    for aid in chunk:
-                        _artist_genre_cache.setdefault(aid, ())
-                        out.setdefault(aid, ())
-                continue
-            data = res.json() or {}
-            for art in (data.get("artists") or []):
-                if not art:
-                    continue
-                aid = art.get("id", "")
-                tags = tuple(g.lower() for g in (art.get("genres") or []))
-                if aid:
-                    with _artist_genre_lock:
-                        _artist_genre_cache[aid] = tags
-                    out[aid] = tags
+            found = future.result(timeout=20)
         except Exception as exc:
-            logger.warning(f"[ARTIST_GENRES] fetch error: {exc}")
-            with _artist_genre_lock:
-                for aid in chunk:
-                    _artist_genre_cache.setdefault(aid, ())
-                    out.setdefault(aid, ())
+            logger.warning(f"[ARTIST_GENRES] chunk failed: {exc}")
+            continue
+        with _artist_genre_lock:
+            _artist_genre_cache.update(found)
+        out.update(found)
 
     return out
 
 
-def _filter_by_artist_genres(tracks: list, token: str, exclusions) -> list:
-    """
-    Drop any track whose primary artist's Spotify genre tags match a user
-    dislike keyword. This is the DYNAMIC translation step: we don't need our
-    own genre dictionary because Spotify already tags artists with the
-    canonical genre vocabulary they actually belong to.
-    """
-    if not exclusions or not tracks:
+def _filter_by_artist_genres(tracks: list, token: str, exclusions, strict: bool = True) -> list:
+    if not tracks or not exclusions or not exclusions.requires_genre_tags:
         return tracks
 
-    artist_ids = [t.get("artistId", "") for t in tracks if t.get("artistId")]
-    if not artist_ids:
-        return tracks
+    def ids_of(t: dict) -> list:
+        ids = [a for a in (t.get("artistIds") or []) if a]
+        if not ids and t.get("artistId"):
+            ids = [t["artistId"]]
+        return ids
 
-    genres_by_artist = fetch_artist_genres_batch(token, artist_ids)
+    genres_by_artist = fetch_artist_genres_batch(
+        token, [aid for t in tracks for aid in ids_of(t)]
+    )
 
     kept = []
-    dropped = 0
+    matched = 0
+    unverified = 0
     for t in tracks:
-        aid = t.get("artistId", "")
-        tags = genres_by_artist.get(aid, ())
-        if tags and exclusions.matches_any_genre_tag(tags):
-            dropped += 1
+        ids = ids_of(t)
+        if any(exclusions.matches_any_genre_tag(genres_by_artist.get(a, ())) for a in ids):
+            matched += 1
+            continue
+        if strict and not (ids and genres_by_artist.get(ids[0])):
+            unverified += 1
             continue
         kept.append(t)
-    if dropped:
-        logger.info(f"[DISLIKE] artist-genre filter dropped {dropped} track(s)")
+    if matched or unverified:
+        logger.info(
+            f"[DISLIKE] artist-genre filter dropped {matched} matching, "
+            f"{unverified} unverified track(s), kept {len(kept)}"
+        )
     return kept
 
 
-def search_tracks_by_query(token: str, query: str, market: str, limit: int = 30) -> list:
+def apply_exclusions(tracks: list, token: str, exclusions, strict: bool = True) -> list:
+    if not exclusions or not tracks:
+        return tracks
+    keep = make_track_filter(exclusions)
+    tracks = [t for t in tracks if keep(t)]
+    tracks = _filter_by_artist_genres(tracks, token, exclusions, strict=strict)
+    if exclusions.vibe_filters:
+        tracks = filter_tracks_by_vibe(tracks, token, exclusions.vibe_filters)
+    return tracks
+
+
+def search_tracks_by_query(token: str, query: str, market: str, limit: int = 30, offset: int = 0) -> list:
     res = requests.get(
         "https://api.spotify.com/v1/search",
         headers={"Authorization": f"Bearer {token}"},
-        params={"q": query, "type": "track", "limit": min(limit, 50), "market": market},
+        params={"q": query, "type": "track", "limit": min(limit, 50), "offset": offset, "market": market},
         timeout=6,
     )
     if res.status_code == 200:
@@ -283,6 +305,9 @@ def search_movie_album(token: str, movie_name: str, indian_lang: str) -> list:
                         "spotifyUrl": t.get("external_urls", {}).get("spotify", ""),
                         "previewUrl": t.get("preview_url"),
                         "uri":        t["uri"],
+                        "artistId":   (_artist_ids_of(t) or [""])[0],
+                        "artistIds":  _artist_ids_of(t),
+                        "explicit":   bool(t.get("explicit", False)),
                     })
 
         if tracks:
@@ -310,6 +335,9 @@ def search_movie_album(token: str, movie_name: str, indian_lang: str) -> list:
                         "spotifyUrl": t.get("external_urls", {}).get("spotify", ""),
                         "previewUrl": t.get("preview_url"),
                         "uri":        t["uri"],
+                        "artistId":   (_artist_ids_of(t) or [""])[0],
+                        "artistIds":  _artist_ids_of(t),
+                        "explicit":   bool(t.get("explicit", False)),
                     })
         if len(track_fallback) >= 20:
             break
@@ -374,20 +402,20 @@ def get_recommendations_for_bucket(
 ) -> list:
     market     = lang_cfg.get("market", "US")
     all_tracks = []
-    keep       = make_track_filter(exclusions)          # predicate: True = keep
+    keep       = make_track_filter(exclusions)
+    strict     = bool(exclusions) and exclusions.requires_genre_tags
 
     if movie_name and indian_lang:
         raw = search_movie_album(token, movie_name, indian_lang)
+        anchors = []
         for t in raw:
             uri    = t.get("uri", "")
             artist = t.get("artist", "")
             if uri and dedup.is_allowed(uri, artist) and keep(t):
                 dedup.register(uri, artist)
-                all_tracks.append(t)
+                anchors.append(t)
+        all_tracks = apply_exclusions(anchors, token, exclusions, strict=False)
         if len(all_tracks) >= track_count:
-            # Even movie-soundtrack tracks get the artist-genre dynamic filter,
-            # so a user who excludes a language still has it honoured here.
-            all_tracks = _filter_by_artist_genres(all_tracks, token, exclusions)
             return all_tracks[:track_count]
 
     queries = build_search_queries(
@@ -396,16 +424,13 @@ def get_recommendations_for_bucket(
     )
     logger.info(f"[QUERIES] {queries[:6]}")
 
-    def fetch_query(q: str) -> list:
+    def fetch_query(q: str, offset: int) -> list:
         try:
-            raw    = search_tracks_by_query(token, q, market, limit=40)
+            raw    = search_tracks_by_query(token, q, market, limit=40, offset=offset)
             result = []
             for t in raw:
                 uri    = t.get("uri", "")
                 artist = t["artists"][0]["name"] if t.get("artists") else ""
-                # Cheap metadata text filter at fetch time. The richer artist-
-                # genre-tag filter runs once at the end of the bucket on the
-                # accumulated candidate pool (one batched API call).
                 if uri and dedup.is_allowed(uri, artist) and keep(t):
                     result.append(normalise_track(t))
             return result
@@ -413,33 +438,30 @@ def get_recommendations_for_bucket(
             logger.warning(f"[QUERY_ERR] {q}: {exc}")
             return []
 
-    futures = {_GLOBAL_EXECUTOR.submit(fetch_query, q): q for q in queries}
-    # When exclusions are active we over-fetch so the artist-genre drop step
-    # at the end still leaves enough tracks to hit `track_count`.
-    target_pool = track_count * (3 if exclusions else 2)
-    try:
-        for future in as_completed(futures, timeout=15):
-            for t in future.result():
-                uri    = t.get("uri", "")
-                artist = t.get("artist", "")
-                if uri and dedup.is_allowed(uri, artist) and keep(t):
-                    dedup.register(uri, artist)
-                    all_tracks.append(t)
-            if len(all_tracks) >= target_pool:
-                break
-    except FutureTimeoutError:
-        logger.warning("[TIMEOUT] get_recommendations_for_bucket timed out after 15s")
+    target_pool = track_count * (8 if strict else 3 if exclusions else 2)
+    offsets     = (0, 40, 80) if strict else (0,)
 
-    # Dynamic translation step — Spotify's own artist-genre tags do the work
-    # of mapping a user's typed exclusion ("rap", "hindi", "k-pop") to the
-    # tracks that actually belong to that genre, without us maintaining any
-    # canonical-vocabulary table on our side.
-    all_tracks = _filter_by_artist_genres(all_tracks, token, exclusions)
-
-    # Audio-feature vibe filter (sad/happy/energetic/etc). One batched
-    # `/v1/audio-features` call per bucket; no-op when no vibes triggered.
-    if exclusions and getattr(exclusions, "vibe_filters", None):
-        all_tracks = filter_tracks_by_vibe(all_tracks, token, exclusions.vibe_filters)
+    for offset in offsets:
+        needed = track_count - len(all_tracks)
+        if needed <= 0 or not queries:
+            break
+        pool    = []
+        futures = {_GLOBAL_EXECUTOR.submit(fetch_query, q, offset): q for q in queries}
+        try:
+            for future in as_completed(futures, timeout=15):
+                for t in future.result():
+                    uri    = t.get("uri", "")
+                    artist = t.get("artist", "")
+                    if uri and dedup.is_allowed(uri, artist) and keep(t):
+                        dedup.register(uri, artist)
+                        pool.append(t)
+                if len(pool) >= target_pool:
+                    break
+        except FutureTimeoutError:
+            logger.warning("[TIMEOUT] get_recommendations_for_bucket timed out after 15s")
+        if not pool:
+            break
+        all_tracks.extend(apply_exclusions(pool, token, exclusions, strict=strict))
 
     random.shuffle(all_tracks)
     return all_tracks[:track_count]
@@ -548,11 +570,15 @@ def search_actor_songs(token: str, actor_name: str, market: str,
 # ─────────────────────────────────────────────────────────────────────────────
 # Audio-features batched lookup (for the vibe-exclusion filter).
 # ─────────────────────────────────────────────────────────────────────────────
+_audio_features_blocked = False
+
+
 def fetch_audio_features_batch(token: str, track_ids: list) -> dict:
     """Batch-fetch `/v1/audio-features` for up to 100 IDs at a time. Returns
     {track_id: features_dict}. Tracks Spotify has no analysis for map to {}."""
+    global _audio_features_blocked
     out: dict = {}
-    if not track_ids:
+    if not track_ids or _audio_features_blocked:
         return out
     headers = {"Authorization": f"Bearer {token}"}
     seen: set = set()
@@ -566,6 +592,10 @@ def fetch_audio_features_batch(token: str, track_ids: list) -> dict:
                 params={"ids": ",".join(chunk)},
                 timeout=8,
             )
+            if res.status_code == 403:
+                _audio_features_blocked = True
+                logger.warning("[AUDIO_FEATURES] HTTP 403, endpoint unavailable for this app")
+                break
             if res.status_code != 200:
                 logger.warning(f"[AUDIO_FEATURES] HTTP {res.status_code}")
                 continue

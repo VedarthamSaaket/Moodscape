@@ -64,6 +64,7 @@ class SuggestionsRequest(BaseModel):
     # sonic territory the archetype actually owns (e.g. "chamber music piano
     # sonata melancholy" for Dark Academia).
     searchSeeds:   Optional[list[str]] = None
+    dislikedGenres: Optional[list[str]] = None
     count:         int                 = 10
 
 class MoodRequest(BaseModel):
@@ -82,6 +83,8 @@ class SimilarTracksRequest(BaseModel):
     language:        Optional[str]       = None
     genre:           Optional[str]       = None
     ignored_uris:    Optional[list[str]] = None
+    disliked_genres: Optional[list[str]] = None
+    exclude_explicit: bool = False
 
 
 class RemoveTrackRequest(BaseModel):

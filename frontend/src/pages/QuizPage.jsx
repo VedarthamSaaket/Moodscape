@@ -452,6 +452,7 @@ function ResultView({ archetype, runnerUp, scores, confidence, margin, displayCo
             // Academia rather than an undifferentiated "sad indie" cloud).
             searchSeeds:   archetype.searchSeeds || null,
             personalSeed:  personalSeed || null,
+            dislikedGenres: useQuizStore.getState().dislikedGenres || [],
             count:         10,
           }),
         });

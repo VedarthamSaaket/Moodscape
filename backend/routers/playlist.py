@@ -16,7 +16,7 @@ from spotify import (
     normalise_track, search_tracks_by_query, search_movie_album,
     get_recommendations, get_recommendations_for_bucket, get_app_token,
     search_artist, get_artist_top_tracks, search_actor_songs,
-    classify_film_vs_indie, filter_tracks_by_vibe,
+    classify_film_vs_indie, filter_tracks_by_vibe, apply_exclusions,
 )
 from mood_engine import parse_language
 from curator import (
@@ -26,7 +26,7 @@ from curator import (
 from models import (
     PlaylistRequest, SimilarTracksRequest, SuggestionsRequest, RemoveTrackRequest,
 )
-from exclusions import build_exclusions
+from exclusions import build_exclusions, parse_dislikes_from_text
 from sound_seeds import detect_sound_seeds
 
 router = APIRouter()
@@ -109,6 +109,24 @@ def create_playlist(data: PlaylistRequest, request: Request):
     mood_text = sanitise_user_text(data.moodText.strip(), "moodText", max_len=500)
     intent    = sanitise_user_text(data.playlistIntent.strip(), "playlistIntent", max_len=200) if data.playlistIntent else None
 
+    selected_langs = [sanitise_language(l) for l in (data.selectedLanguages or ["English"])]
+    selected_genres = [sanitise_genre(g) for g in (data.selectedGenres or [])]
+
+    disliked_raw = [
+        sanitise_user_text(g, "dislikedGenre", max_len=80)
+        for g in (data.dislikedGenres or [])
+        if isinstance(g, str) and g.strip()
+    ]
+    exclusions, mood_text = build_exclusions(
+        disliked_raw, mood_text,
+        explicit_filter=bool(getattr(data, "excludeExplicit", False)),
+        extra_texts=[intent] if intent else None,
+    )
+    if intent:
+        _, intent = parse_dislikes_from_text(intent)
+        intent = intent or None
+    seed_intent = "" if (intent or "").lower() == mood_text.lower() else (intent or "")
+
     # ─── Style-quiz archetype influence ──────────────────────────────────────
     # If the user has taken the Quiz and chose "Use my style", the frontend
     # forwards their archetype + vibe prompt. Fold it into the mood text so
@@ -134,32 +152,7 @@ def create_playlist(data: PlaylistRequest, request: Request):
         mood_text = mood_text[:600]
         logger.info(f"[STYLE] archetype={style_arch_name or 'n/a'}, vibe folded into mood")
 
-    selected_langs = [sanitise_language(l) for l in (data.selectedLanguages or ["English"])]
-    selected_genres = [sanitise_genre(g) for g in (data.selectedGenres or [])]
-
-    # ─── Dislikes → strict exclusions ────────────────────────────────────────
-    # Structured dislikes (the quiz "genre you can't stand" step, carried in the
-    # style seed) PLUS any dislikes the user typed into the mood box ("I hate
-    # kpop", "no country"). build_exclusions parses the free-text ones out and
-    # returns a cleaned mood string with those clauses removed, so "hate" never
-    # poisons the emotion read or the positive-intent search. The resolved
-    # exclusion set suppresses disliked-genre queries AND filters fetched tracks.
-    disliked_raw = [
-        sanitise_user_text(g, "dislikedGenre", max_len=80)
-        for g in (data.dislikedGenres or [])
-        if isinstance(g, str) and g.strip()
-    ]
-    # Snapshot the user's full input BEFORE build_exclusions strips dislike
-    # clauses — the sound-seed / niche-genre detector below needs the
-    # ORIGINAL text so a mention like "feeling anxious but want pink noise"
-    # still surfaces "pink noise" even after dislike-clause stripping.
     raw_mood_for_seeds = mood_text
-    exclusions, mood_text = build_exclusions(
-        disliked_raw, mood_text,
-        explicit_filter=bool(getattr(data, "excludeExplicit", False)),
-    )
-    if exclusions and exclusions.keywords:
-        logger.info(f"[DISLIKE] suppressing genres={sorted(exclusions.keywords)}")
 
     selected_movies = data.selectedMovies or ([data.movieName] if data.movieName else [])
     split_movies    = []
@@ -208,14 +201,11 @@ def create_playlist(data: PlaylistRequest, request: Request):
         for mv in selected_movies:
             indian_lang = detect_indian_language(mood_text, data.filmIndustry, selected_langs)
             raw = search_movie_album(access_token, mv, indian_lang or "hindi")
+            raw = apply_exclusions(raw, access_token, exclusions, strict=False)
             for t in raw:
                 uri    = t.get("uri", "")
                 artist = t.get("artist", "")
                 if uri and dedup2.is_allowed(uri, artist):
-                    # Honour explicit + dislike filters even on movie-album
-                    # anchors so a "no explicit" toggle is truly global.
-                    if exclusions and exclusions.explicit and t.get("explicit"):
-                        continue
                     dedup2.register(uri, artist)
                     track_uris.append(uri)
                     all_tracks.append({k: v for k, v in t.items() if k != "uri"})
@@ -229,13 +219,12 @@ def create_playlist(data: PlaylistRequest, request: Request):
             per_actor = max(3, min(8, track_count // max(1, len(selected_actors) * 2)))
             for actor in selected_actors:
                 hits = search_actor_songs(access_token, actor, actor_market, limit=per_actor * 3)
+                hits = apply_exclusions(hits, access_token, exclusions, strict=False)
                 added_for_actor = 0
                 for t in hits:
                     uri    = t.get("uri", "")
                     artist = t.get("artist", "")
                     if not uri or not dedup2.is_allowed(uri, artist):
-                        continue
-                    if exclusions and exclusions.explicit and t.get("explicit"):
                         continue
                     dedup2.register(uri, artist)
                     track_uris.append(uri)
@@ -252,7 +241,10 @@ def create_playlist(data: PlaylistRequest, request: Request):
         # text (pre-dislike-strip so nothing's lost), fetch a small number
         # of tracks per seed via direct Spotify search, and prepend so the
         # user's specific ask is GUARANTEED to land in the playlist.
-        sound_seeds = detect_sound_seeds(raw_mood_for_seeds, intent or "")
+        sound_seeds = [
+            (q, label) for (q, label) in detect_sound_seeds(raw_mood_for_seeds, seed_intent)
+            if not (exclusions and exclusions.matches_query_text(q))
+        ]
         if sound_seeds:
             # Cap at ~30% of the playlist (min 3, max 8) so the rest of
             # the slots still get filled by mood-driven recommendations.
@@ -266,7 +258,7 @@ def create_playlist(data: PlaylistRequest, request: Request):
             # market has the broadest selection of these uploads on Spotify.
             seed_market = "US"
             added_sound = 0
-            for (q, _label) in sound_seeds:
+            for (q, label) in sound_seeds:
                 if added_sound >= seed_cap:
                     break
                 try:
@@ -274,17 +266,18 @@ def create_playlist(data: PlaylistRequest, request: Request):
                 except Exception as exc:
                     logger.warning(f"[SOUND_SEEDS] query '{q}' failed: {exc}")
                     continue
+                hits = apply_exclusions(
+                    [normalise_track(raw) for raw in hits], access_token, exclusions,
+                    strict=not label.startswith("sound:"),
+                )
                 added_for_q = 0
-                for raw in hits:
-                    uri = raw.get("uri", "")
-                    a = raw["artists"][0]["name"] if raw.get("artists") else ""
+                for norm in hits:
+                    uri = norm.get("uri", "")
+                    a = norm.get("artist", "")
                     if not uri or not dedup2.is_allowed(uri, a):
-                        continue
-                    if exclusions and exclusions.explicit and raw.get("explicit"):
                         continue
                     dedup2.register(uri, a)
                     track_uris.append(uri)
-                    norm = normalise_track(raw)
                     all_tracks.append({k: v for k, v in norm.items() if k != "uri"})
                     added_for_q += 1
                     added_sound += 1
@@ -454,6 +447,20 @@ def similar_tracks(data: SimilarTracksRequest, request: Request):
     lang_cfg     = LANGUAGE_CONFIG.get(lang_key, LANGUAGE_CONFIG["english"])
     market       = lang_cfg.get("market", "US")
 
+    disliked_raw = [
+        sanitise_user_text(g, "dislikedGenre", max_len=80)
+        for g in (data.disliked_genres or [])
+        if isinstance(g, str) and g.strip()
+    ]
+    exclusions, safe_mood = build_exclusions(
+        disliked_raw, safe_mood,
+        explicit_filter=bool(data.exclude_explicit),
+        extra_texts=[safe_intent] if safe_intent else None,
+    )
+    if safe_intent:
+        _, safe_intent = parse_dislikes_from_text(safe_intent)
+        safe_intent = safe_intent or None
+
     mood_profile = parse_mood_profile(safe_mood, safe_intent)
     dedup        = DeduplicationState()
 
@@ -471,24 +478,23 @@ def similar_tracks(data: SimilarTracksRequest, request: Request):
     )
     if res.status_code == 200:
         items = res.json().get("tracks", {}).get("items", [])
-        count = 0
-        for t in items:
-            if t["name"].lower() == data.track_title.lower():
-                continue
+        same_artist = apply_exclusions(
+            [normalise_track(t) for t in items if t["name"].lower() != data.track_title.lower()],
+            access_token, exclusions,
+        )
+        for t in same_artist[:4]:
             uri    = t.get("uri", "")
-            artist = t["artists"][0]["name"] if t.get("artists") else ""
+            artist = t.get("artist", "")
             if uri and dedup.is_allowed(uri, artist):
                 dedup.register(uri, artist)
-                result_tracks.append(normalise_track(t))
-                count += 1
-            if count >= 4:
-                break
+                result_tracks.append(t)
 
     indian_lang = detect_indian_language(safe_language, None, [safe_language])
     queries     = build_search_queries(
         mood_profile, lang_cfg, indian_lang,
         [safe_genre] if safe_genre else [],
         [safe_language],
+        exclusions=exclusions,
     )
     queries.insert(0, f"similar to {safe_artist} {safe_genre}")
 
@@ -503,7 +509,7 @@ def similar_tracks(data: SimilarTracksRequest, request: Request):
                 artist = t["artists"][0]["name"] if t.get("artists") else ""
                 if uri and dedup.is_allowed(uri, artist):
                     out.append(normalise_track(t))
-            return out
+            return apply_exclusions(out, access_token, exclusions)
         except Exception as exc:
             logger.warning(f"[SIMILAR_ERR] {exc}")
             return []
@@ -650,6 +656,14 @@ def quiz_suggestions(data: SuggestionsRequest, request: Request):
     lang_key = LANGUAGE_ALIASES.get((selected_langs[0] if selected_langs else "english").lower(), "english")
     market   = LANGUAGE_CONFIG.get(lang_key, LANGUAGE_CONFIG["english"]).get("market", "US")
 
+    disliked_raw = [
+        sanitise_user_text(g, "dislikedGenre", max_len=80)
+        for g in (data.dislikedGenres or [])
+        if isinstance(g, str) and g.strip()
+    ]
+    exclusions, _ = build_exclusions(disliked_raw, "")
+    archetype_seeds = [q for q in archetype_seeds if not exclusions.matches_query_text(q)]
+
     mood_profile = parse_mood_profile(mood_text, None)
     dedup        = DeduplicationState()
 
@@ -706,13 +720,12 @@ def quiz_suggestions(data: SuggestionsRequest, request: Request):
                 uri = t.get("uri", "")
                 a   = t["artists"][0]["name"] if t.get("artists") else ""
                 if uri and dedup.is_allowed(uri, a):
-                    candidates.append(t)
+                    candidates.append(normalise_track(t))
+            candidates = apply_exclusions(candidates, token, exclusions)
             random.shuffle(candidates)
             for t in candidates[:per_seed]:
-                uri = t.get("uri", "")
-                a   = t["artists"][0]["name"] if t.get("artists") else ""
-                dedup.register(uri, a)
-                archetype_tracks.append(normalise_track(t))
+                dedup.register(t.get("uri", ""), t.get("artist", ""))
+                archetype_tracks.append(t)
 
     if personal:
         # ── 1. The artist's own top tracks ──────────────────────────────────
@@ -753,17 +766,23 @@ def quiz_suggestions(data: SuggestionsRequest, request: Request):
             if len(artist_tracks) + len(theme_tracks) >= count:
                 break
             q = sanitise_search_token(f"{g} {emotion}".strip(), "themeQuery", max_len=120)
+            if exclusions.matches_query_text(q):
+                continue
             try:
                 # Widen pool + sample so identical artist-genre+emotion combos
                 # don't return the same three theme picks on every retake.
-                pool = list(search_tracks_by_query(token, q, market, limit=30))[:20]
+                pool = [
+                    normalise_track(t)
+                    for t in list(search_tracks_by_query(token, q, market, limit=30))[:20]
+                ]
+                pool = apply_exclusions(pool, token, exclusions)
                 random.shuffle(pool)
                 for t in pool:
                     uri = t.get("uri", "")
-                    a   = t["artists"][0]["name"] if t.get("artists") else ""
+                    a   = t.get("artist", "")
                     if uri and dedup.is_allowed(uri, a):
                         dedup.register(uri, a)
-                        theme_tracks.append(normalise_track(t))
+                        theme_tracks.append(t)
                     if len(theme_tracks) >= 3:
                         break
             except Exception as exc:
@@ -781,6 +800,7 @@ def quiz_suggestions(data: SuggestionsRequest, request: Request):
             quiz_tracks = get_recommendations(
                 token, mood_text, mood_profile, remaining,
                 selected_langs, selected_genres, None, None, dedup,
+                exclusions=exclusions,
             )
         except Exception as exc:
             logger.warning(f"[SUGGEST] recommendations failed: {exc}")

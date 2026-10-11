@@ -1,55 +1,9 @@
-"""
-Genre / music-type EXCLUSION engine.
-
-DYNAMIC, NOT HARD-CODED.
-
-Whatever the user types in the dedicated "Genres or music types to exclude"
-textbox (or supplies via the quiz dislike step) is honoured verbatim — there
-is no curated whitelist of recognised genres any more. Each phrase is reduced
-to its meaningful atoms (filler words like "music", "songs", "stuff" are
-dropped) and then used as a literal substring match against three live signals
-at playlist-generation time:
-
-  1. TRACK METADATA TEXT  — title, artist name, album name. Catches anything
-     that names the disliked term in its own metadata.
-
-  2. SPOTIFY ARTIST GENRE TAGS  — for every candidate track, we batch-fetch
-     the artist's `genres` array from `/v1/artists` and drop the track if any
-     tag contains any user keyword. THIS is the "translation" step: a user
-     who types "rap" excludes Travis Scott because Spotify tags him with
-     ["rap", "hip hop", "trap"]. A user who types "Hindi music" excludes
-     Arijit Singh because Spotify tags him with ["filmi", "modern bollywood",
-     "hindi indie pop"]. We don't need to maintain our own genre dictionary;
-     Spotify already does.
-
-  3. QUERY BANK CONTENTS  — at search-query build time we scan each genre
-     query bank (key + every query string in its value list) and skip the
-     whole bank if any user keyword appears. So a user typing "rap" suppresses
-     the hip-hop bank dynamically, without us hard-coding "rap → hip-hop".
-
-This module is intentionally tiny and dependency-free; the heavy lifting (the
-artist-genre fetch + the bank scan) lives in `spotify.py` and `mood_engine.py`
-respectively, both of which consume the Exclusions object below.
-
-Two entry points feed dislikes in:
-  * STRUCTURED — the `dislikedGenres` list the frontend sends. STRICT: every
-    phrase becomes a literal keyword, no recognition required.
-  * FREE-TEXT  — phrases the user types into the mood/intent box, lifted out
-    by `parse_dislikes_from_text` so the user does not need a separate field.
-"""
-
 import re
 from typing import Callable, Iterable, Optional
 
 from config import logger
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Explicit-content detection.
-# ─────────────────────────────────────────────────────────────────────────────
-# Phrases the user might type in the dislikes textbox that mean "filter out
-# tracks Spotify flags as explicit". Independent of the UI checkbox; both
-# routes set the same flag on the Exclusions object.
 _EXPLICIT_TRIGGERS = {
     "explicit", "explicit content", "explicit songs", "explicit music",
     "explicit lyrics", "swearing", "swear words", "swears", "profanity",
@@ -57,36 +11,7 @@ _EXPLICIT_TRIGGERS = {
     "no profanity", "no swearing", "no cursing", "vulgar", "obscene",
 }
 
-
-def _contains_explicit_trigger(phrases: Iterable[str]) -> bool:
-    """True if any phrase looks like a request to filter explicit content."""
-    for p in phrases or ():
-        if not p:
-            continue
-        norm = " ".join(str(p).lower().split())
-        if norm in _EXPLICIT_TRIGGERS:
-            return True
-        # Substring fallback: catches "no explicit stuff" / "anything explicit"
-        for trig in _EXPLICIT_TRIGGERS:
-            if trig in norm:
-                return True
-    return False
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Vibe-keyword → Spotify audio-feature range map.
-#
-# Each entry says: "if the user excludes this vibe, drop tracks whose audio
-# features fall in this range." Ranges are tuned conservatively so we don't
-# over-filter — e.g. excluding "sad" drops only tracks with valence < 0.30
-# (clearly downbeat), not anything mildly mellow.
-#
-# `valence`  = musical positiveness (0=sad, 1=happy)
-# `energy`   = perceived intensity   (0=calm, 1=energetic)
-# A None bound = no constraint on that axis.
-# ─────────────────────────────────────────────────────────────────────────────
 _VIBE_RANGES = {
-    # Vibe word → drop tracks where features satisfy these (val_lo, val_hi, en_lo, en_hi)
     "sad":         (None, 0.30, None, None),
     "depressing":  (None, 0.30, None, None),
     "melancholy":  (None, 0.30, None, None),
@@ -107,80 +32,288 @@ _VIBE_RANGES = {
     "hype":        (None, None, 0.80, None),
 }
 
+_GENRE_FAMILIES = [
+    {
+        "names": ["rap", "rapper", "rappers", "rapping", "hip hop", "hiphop"],
+        "tags": [
+            "trap", "drill", "grime", "boom bap", "crunk", "horrorcore",
+            "gangsta", "gangster", "g funk", "hyphy", "phonk", "plugg",
+            "mumble", "turntablism", "dirty south", "chopped and screwed",
+            "freestyle", "cypher", "diss track", "emcee", "miami bass",
+        ],
+    },
+    {"names": ["pop"], "tags": []},
+    {
+        "names": ["rock", "rock and roll", "rock n roll"],
+        "tags": ["grunge", "punk", "metal", "emo", "screamo", "shoegaze", "hardcore"],
+    },
+    {
+        "names": ["metal", "heavy metal"],
+        "tags": ["deathcore", "grindcore", "djent", "thrash", "sludge", "doom"],
+    },
+    {
+        "names": ["edm", "electronic", "electronica", "electronic dance", "dance electronic"],
+        "tags": [
+            "house", "techno", "trance", "dubstep", "drum and bass", "dnb",
+            "electro", "hardstyle", "big room", "future bass",
+            "breakbeat", "idm",
+        ],
+    },
+    {
+        "names": ["country", "country western"],
+        "tags": ["bluegrass", "americana", "honky tonk", "red dirt"],
+    },
+    {"names": ["kpop", "korean pop", "korean"], "tags": ["korean"]},
+    {
+        "names": ["jpop", "japanese pop", "japanese"],
+        "tags": ["japanese", "anime", "vocaloid", "jrock", "city pop"],
+    },
+    {
+        "names": ["classical", "orchestral", "western classical"],
+        "tags": ["orchestra", "baroque", "opera", "symphony", "choral", "concerto"],
+    },
+    {
+        "names": ["jazz"],
+        "tags": ["bebop", "big band", "dixieland", "hard bop", "bossa nova"],
+    },
+    {
+        "names": ["r&b", "rnb", "r and b", "r n b", "rhythm and blues"],
+        "tags": ["soul", "motown", "quiet storm", "new jack swing"],
+    },
+    {"names": ["reggae"], "tags": ["dancehall", "rocksteady", "ragga"]},
+    {
+        "names": ["latin", "latino", "spanish"],
+        "tags": [
+            "reggaeton", "salsa", "bachata", "cumbia", "merengue", "banda",
+            "corrido", "mariachi", "urbano", "norteno", "ranchera", "mexican",
+            "spanish",
+        ],
+    },
+    {"names": ["bollywood", "hindi", "filmi"], "tags": ["bollywood", "filmi", "hindi", "desi"]},
+    {
+        "names": ["indian", "desi"],
+        "tags": [
+            "bollywood", "filmi", "hindi", "desi", "punjabi", "tamil", "telugu",
+            "tollywood", "kollywood", "mollywood", "sandalwood", "malayalam",
+            "kannada", "bengali", "marathi", "bhojpuri", "carnatic",
+            "hindustani", "bhangra", "ghazal", "qawwali", "indian",
+        ],
+    },
+    {"names": ["punjabi", "bhangra"], "tags": ["punjabi", "bhangra"]},
+    {"names": ["telugu", "tollywood"], "tags": ["telugu", "tollywood"]},
+    {"names": ["tamil", "kollywood"], "tags": ["tamil", "kollywood"]},
+    {
+        "names": ["christian", "gospel", "worship", "religious"],
+        "tags": ["christian", "gospel", "worship", "ccm", "praise"],
+    },
+    {
+        "names": ["devotional", "bhajan", "bhakti"],
+        "tags": ["devotional", "bhajan", "bhakti", "kirtan", "aarti"],
+    },
+    {
+        "names": ["afrobeats", "afrobeat", "afro"],
+        "tags": ["afrobeat", "afropop", "amapiano", "afro"],
+    },
+    {
+        "names": ["kids", "children", "childrens", "nursery rhymes", "nursery"],
+        "tags": ["children", "kids", "nursery", "lullaby"],
+    },
+    {
+        "names": [
+            "sad", "sadness", "depressing", "depressed", "depressive",
+            "melancholy", "melancholic", "gloomy", "heartbreak",
+            "heartbroken", "crying", "tearful", "sorrowful", "lonely",
+            "loneliness", "solitude", "isolation", "alone", "grief",
+        ],
+        "tags": [
+            "sadcore", "slowcore", "emo", "melanchol", "dsbm", "funeral",
+            "lament", "sorrow", "tearjerker", "torch song", "doom",
+            "dark ambient",
+        ],
+    },
+    {
+        "names": [
+            "happy", "cheerful", "joyful", "upbeat", "feel good", "feelgood",
+            "cheery", "bubbly", "sunny",
+        ],
+        "tags": ["bubblegum", "sunshine pop", "kawaii", "uplifting", "joy", "party"],
+    },
+    {
+        "names": [
+            "chill", "calm", "mellow", "soft", "relaxing", "relaxed", "slow",
+            "sleepy", "laid back", "soothing", "quiet",
+        ],
+        "tags": [
+            "lofi", "ambient", "downtempo", "new age", "sleep", "meditation",
+            "relax", "easy listening", "lounge", "lullaby", "spa", "drone",
+            "healing", "yoga",
+        ],
+    },
+    {
+        "names": [
+            "aggressive", "angry", "intense", "harsh", "violent", "loud",
+            "screaming", "heavy",
+        ],
+        "tags": [
+            "metal", "hardcore", "punk", "grindcore", "deathcore", "thrash",
+            "screamo", "industrial", "drill", "horrorcore", "hardstyle",
+            "gabber", "frenchcore", "crust", "powerviolence", "sludge",
+            "doom", "djent", "riddim", "deathstep", "brostep",
+        ],
+    },
+    {
+        "names": [
+            "energetic", "hype", "hyper", "high energy", "fast", "party",
+            "club", "banger", "bangers", "workout", "gym",
+        ],
+        "tags": [
+            "edm", "house", "techno", "trance", "dubstep", "drum and bass",
+            "dnb", "hardstyle", "hardcore", "gabber", "nightcore",
+            "eurodance", "big room", "speedcore", "electro", "riddim",
+            "jersey club", "phonk", "dance",
+        ],
+    },
+    {
+        "names": ["dark", "creepy", "scary", "spooky", "eerie"],
+        "tags": [
+            "goth", "horror", "witch house", "black metal", "doom",
+            "industrial", "halloween", "dungeon",
+        ],
+    },
+    {
+        "names": ["romantic", "romance", "love", "lovey"],
+        "tags": ["bolero", "wedding", "valentine", "slow jam"],
+    },
+]
 
-def _detect_vibe_filters(phrases: Iterable[str]) -> list[tuple[float, float, float, float]]:
-    """Return the set of audio-feature filter ranges triggered by user
-    phrases. Each range is (val_lo, val_hi, en_lo, en_hi) — a track is
-    DROPPED if it satisfies any range (i.e. its features fall inside it)."""
-    triggered: list[tuple] = []
-    for p in phrases or ():
-        if not p:
-            continue
-        norm = " ".join(str(p).lower().split())
-        # Word-bounded match: "sad" but not inside "salad"
-        for vibe, rng in _VIBE_RANGES.items():
-            if re.search(rf"(?<![a-z]){re.escape(vibe)}(?![a-z])", norm):
-                triggered.append(rng)
-    return triggered
-
-
-# Filler words to drop when reducing a user phrase to its keyword atom.
-# Intentionally tiny — anything not in this list is treated as meaningful.
-# Includes negation/connector words too so that "no country music" or
-# "without rap" — when a free-text parser leaks the negator into the atom —
-# still reduces cleanly to "country" / "rap".
 _FILLER_WORDS = {
     "music", "musics", "songs", "song", "stuff", "type", "types", "genre",
     "genres", "kind", "kinds", "tracks", "track", "the", "a", "an", "any",
-    "really", "some", "all", "of",
-    "no", "not", "without", "except", "but", "skip", "avoid", "minus",
+    "really", "some", "all", "of", "anything", "everything", "thing",
+    "things", "sort", "sorts", "style", "styles", "artists", "artist",
+    "bands", "band", "please", "pls", "plz", "thanks", "at", "ever",
+    "whatsoever", "related", "based", "like", "such", "as", "kinda",
+    "no", "not", "without", "except", "but", "skip", "avoid",
+    "minus", "exclude", "excluding", "never", "zero", "dont", "don't",
+    "want", "hate", "dislike", "more", "in", "it", "with", "lyrics",
+    "vocals", "beats", "verses", "vibes", "sound", "sounds", "parts",
+    "features", "elements", "influenced", "inspired", "crap", "garbage",
+    "trash", "nonsense", "i", "im", "i'm", "also", "too",
 }
 
+_GENERIC_QUALIFIERS = {
+    "mainstream", "modern", "new", "old", "popular", "commercial", "radio",
+    "generic", "basic", "typical", "current", "todays", "today's", "recent",
+    "top", "chart", "loud", "annoying", "bad", "trashy", "boring", "stupid",
+    "american", "english", "male", "female", "much", "too", "many",
+}
 
-def _squish(s: str) -> str:
-    """
-    Collapse a string to its compact form for substring comparison: lowercase,
-    strip ALL hyphens and ALL whitespace. So "K-Pop", "k pop", "kpop" all
-    normalise to "kpop"; "lo-fi" / "lo fi" / "lofi" all to "lofi"; "hindi
-    indie pop" to "hindiindiepop". Lets the genre-tag and query-text matchers
-    bridge user typos / spacing without us maintaining synonyms.
-    """
-    if not s:
+_NON_GENRE_OBJECTS = {
+    "energy", "sleep", "motivation", "idea", "ideas", "one", "reason",
+    "worries", "worry", "time", "friends", "plans", "mood", "feelings",
+    "feeling", "sure", "matter", "problem", "clue", "way", "longer",
+    "thanks", "doubt", "regrets", "limits", "rules", "stress", "pressure",
+    "rush", "hurry", "particular", "specific", "preference", "preferences",
+    "good", "fun", "money", "work", "school", "class", "life", "love",
+    "hope", "peace", "rest", "focus", "appetite", "me", "you", "it", "this",
+    "that", "them", "him", "her", "us", "myself", "being", "going", "feel",
+}
+
+_MAX_KEYWORD_LEN = 60
+_MAX_FREE_TEXT_WORDS = 4
+
+_B = r"[^\W_]"
+
+
+def _norm(text) -> str:
+    if not text:
         return ""
-    return re.sub(r"[\s\-]+", "", str(s).lower())
+    lowered = str(text).lower().replace("&", "").replace("'", "").replace("’", "")
+    return " ".join(re.findall(r"[^\W_]+", lowered))
+
+
+def _squish(text) -> str:
+    return _norm(text).replace(" ", "")
+
+
+def _spaced(squished: str) -> str:
+    return " ?".join(re.escape(ch) for ch in squished)
+
+
+def _exact_pattern(squished: str) -> str:
+    return rf"(?<!{_B}){_spaced(squished)}(?!{_B})"
+
+
+def _loose_pattern(squished: str) -> str:
+    exact = _exact_pattern(squished)
+    if len(squished) < 3:
+        return exact
+    literal = re.escape(squished)
+    return rf"{exact}|(?<!{_B}){literal}|{literal}(?!{_B})"
+
+
+def _compile(terms: Iterable[str], builder) -> Optional[re.Pattern]:
+    squished = sorted({_squish(t) for t in terms if _squish(t)})
+    if not squished:
+        return None
+    return re.compile("|".join(f"(?:{builder(s)})" for s in squished))
+
+
+_FAMILY_NAME_RES = [
+    (family, _compile(family["names"], _exact_pattern))
+    for family in _GENRE_FAMILIES
+]
+_FAMILY_NAME_SQUISHED = [
+    {_squish(n) for n in family["names"]} for family in _GENRE_FAMILIES
+]
+_VIBE_WORDS = set(_VIBE_RANGES)
 
 
 def _atomise(phrase: str) -> str:
-    """
-    Reduce a user phrase to its meaningful keyword atom.
-
-    "Hindi music"       -> "hindi"
-    "mainstream stuff"  -> "mainstream"
-    "the kpop genre"    -> "kpop"
-    "K-Pop"             -> "k-pop"
-    """
     if not phrase:
         return ""
     words = str(phrase).strip().lower().split()
-    kept = [w for w in words if w not in _FILLER_WORDS]
-    return " ".join(kept).strip()
+    kept = [w for w in words if w.strip(".,!?;:\"()") not in _FILLER_WORDS]
+    return " ".join(w.strip(".,!?;:\"()") for w in kept).strip()
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Free-text dislike extraction from the mood box.
-#
-# We only honour phrases the parser can confidently lift from "I hate X" /
-# "no X" / "anything but X" type phrasings — random words from a normal
-# sentence shouldn't accidentally become exclusion filters.
-# ─────────────────────────────────────────────────────────────────────────────
+def _families_for(atom: str) -> list:
+    if not atom:
+        return []
+    squished = _squish(atom)
+    exact = [
+        family for family, names in zip(_GENRE_FAMILIES, _FAMILY_NAME_SQUISHED)
+        if squished in names
+    ]
+    if exact:
+        return exact
+
+    normed = _norm(atom)
+    words = [w for w in normed.split() if w not in _GENERIC_QUALIFIERS]
+    core = " ".join(words)
+    core_squished = _squish(core)
+    named = [
+        family for family, names in zip(_GENRE_FAMILIES, _FAMILY_NAME_SQUISHED)
+        if core_squished in names
+    ]
+    if named or len(words) < 3:
+        return named
+    return [family for family, rx in _FAMILY_NAME_RES if rx.search(core)]
+
+
 _DISLIKE_TRIGGERS = (
-    r"i\s+(?:really\s+)?(?:hate|dislike|despise|can't\s+stand|cant\s+stand|don'?t\s+like|do\s+not\s+like)",
-    r"(?:no|without|except|but\s+no|minus|avoid|exclude|excluding|skip)",
+    r"i\s+(?:really\s+|just\s+|absolutely\s+)?(?:hate|dislike|despise|loathe|can'?t\s+stand|cannot\s+stand|don'?t\s+(?:like|want|need|enjoy)|do\s+not\s+(?:like|want|need|enjoy))",
+    r"(?:don'?t|do\s+not|never)\s+(?:play|include|add|give\s+me|put|want|use)",
+    r"(?:hate|can'?t\s+stand|sick\s+of|tired\s+of|done\s+with|fed\s+up\s+with)",
+    r"(?:but\s+no|no\s+more|none\s+of|nothing\s+with|nothing\s+like|not\s+any|zero)",
+    r"(?:no|without|except|minus|avoid|exclude|excluding|skip)",
     r"anything\s+but",
-    r"not\s+(?:a\s+fan\s+of|into)",
+    r"everything\s+(?:but|except)",
+    r"not\s+(?:a\s+fan\s+of|into|really\s+into)",
 )
 _DISLIKE_RE = re.compile(
-    r"(?:%s)\s+(?P<obj>[a-z0-9&\-\s]+?)(?=[.,;!?]|$|\bbut\b|\bhowever\b|\bthough\b|\bplease\b|\bi\s+(?:like|love|want|prefer)\b)"
+    r"(?<![a-z])(?:%s)[\s\-]+(?P<obj>[a-z0-9&'\-\s]+?)"
+    r"(?=[.,;!?:()]|$|\b(?:but|however|though|please|pls|for|with|in|on|when|while|because|cause|since|just|only|today|tonight|tho|thanks|i|im|i'm)\b)"
     % "|".join(_DISLIKE_TRIGGERS),
     re.IGNORECASE,
 )
@@ -188,13 +321,6 @@ _OBJ_SPLIT_RE = re.compile(r"\s*(?:,|/|\band\b|\bor\b|\bnor\b)\s*", re.IGNORECAS
 
 
 def parse_dislikes_from_text(mood_text: str) -> tuple[list[str], str]:
-    """
-    Extract dislike atoms from free mood text.
-
-    Returns (atom_list, cleaned_mood_text). The cleaned text has the dislike
-    clauses stripped so they don't pollute the positive-intent search or the
-    HF emotion classifier.
-    """
     if not mood_text or not isinstance(mood_text, str):
         return [], (mood_text or "")
 
@@ -205,11 +331,20 @@ def parse_dislikes_from_text(mood_text: str) -> tuple[list[str], str]:
         obj = (m.group("obj") or "").strip()
         if not obj:
             continue
+        found = []
         for piece in _OBJ_SPLIT_RE.split(obj):
             atom = _atomise(piece)
-            if atom:
-                atoms.append(atom)
-        spans.append((m.start(), m.end()))
+            if not atom or atom in _NON_GENRE_OBJECTS:
+                continue
+            words = atom.split()
+            if words[0] in _NON_GENRE_OBJECTS and not _families_for(atom):
+                continue
+            if len(words) > _MAX_FREE_TEXT_WORDS and not _families_for(atom):
+                continue
+            found.append(atom)
+        if found:
+            atoms.extend(found)
+            spans.append((m.start(), m.end()))
 
     cleaned = mood_text
     for start, end in sorted(spans, reverse=True):
@@ -218,138 +353,122 @@ def parse_dislikes_from_text(mood_text: str) -> tuple[list[str], str]:
 
     if atoms:
         logger.info(f"[DISLIKE] parsed from mood text: {atoms}")
-    return atoms, (cleaned or mood_text)
+    return atoms, cleaned
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# The Exclusions object.
-# ─────────────────────────────────────────────────────────────────────────────
+def _contains_explicit_trigger(phrases: Iterable[str]) -> bool:
+    for p in phrases or ():
+        if not p:
+            continue
+        norm = " ".join(str(p).lower().split())
+        if any(trig in norm for trig in _EXPLICIT_TRIGGERS):
+            return True
+    return False
+
+
+def _detect_vibe_filters(phrases: Iterable[str]) -> list[tuple]:
+    triggered: list[tuple] = []
+    for p in phrases or ():
+        if not p:
+            continue
+        norm = " ".join(str(p).lower().split())
+        for vibe, rng in _VIBE_RANGES.items():
+            if re.search(rf"(?<![a-z]){re.escape(vibe)}(?![a-z])", norm):
+                triggered.append(rng)
+    return triggered
+
+
 class Exclusions:
-    """
-    A set of user-typed dislike keywords plus three live match methods:
-
-      * `text_matches(*fields)`       — substring against track metadata text.
-      * `matches_any_genre_tag(tags)` — substring against any Spotify artist
-                                        genre tag string.
-      * `matches_query_text(query)`   — substring against a search query
-                                        string (used to skip whole banks).
-
-    No hard-coded vocabulary, no canonical-token translation. The keyword set
-    IS the source of truth.
-    """
-
-    __slots__ = ("keywords", "_keywords_squished", "_kw_res", "explicit", "vibe_filters")
+    __slots__ = (
+        "keywords", "genre_terms", "families", "explicit", "vibe_filters",
+        "_text_re", "_tag_re",
+    )
 
     def __init__(self, keywords: Iterable[str]):
-        cleaned: set = set()
+        typed: set = set()
+        text_terms: set = set()
+        tag_terms: set = set()
+        genre_terms: set = set()
+        families: list = []
+
         for kw in (keywords or []):
-            atom = _atomise(kw)
-            if atom and len(atom) <= 60:
-                cleaned.add(atom)
-            # Also store the raw lowercased phrase so multi-word user input
-            # like "mainstream pop" still works as a single keyword.
-            raw = (kw or "").strip().lower()
-            if raw and len(raw) <= 60:
-                cleaned.add(raw)
-        self.keywords = cleaned
+            raw = " ".join(str(kw or "").strip().lower().split())
+            atom = _atomise(raw)
+            if not atom or len(atom) > _MAX_KEYWORD_LEN:
+                continue
+            typed.add(atom)
+            matched = _families_for(atom)
+            for family in matched:
+                if family not in families:
+                    families.append(family)
+            is_sentence = bool(matched) and len(atom.split()) > 2
+            if not is_sentence:
+                text_terms.add(atom)
+                tag_terms.add(atom)
+            words = set(atom.split())
+            is_vibe_only = words <= _VIBE_WORDS
+            is_explicit_only = raw in _EXPLICIT_TRIGGERS or atom in _EXPLICIT_TRIGGERS
+            if matched or not (is_vibe_only or is_explicit_only):
+                genre_terms.add(atom)
 
-        # SQUISHED variants used for substring matching against Spotify genre
-        # tags and search-query strings. Collapse hyphens/whitespace so
-        # "kpop" <-> "k-pop" <-> "k pop" all hit, "lofi" <-> "lo-fi" <-> "lo
-        # fi", etc. Track-metadata matching stays word-bounded on the raw
-        # form (we don't want a stray "pop" inside "popular").
-        self._keywords_squished = {_squish(k) for k in self.keywords if _squish(k)}
-        self._kw_res = [
-            re.compile(r"(?<![a-z])" + re.escape(k) + r"(?![a-z])", re.IGNORECASE)
-            for k in self.keywords
-        ]
+        for family in families:
+            text_terms.update(family["names"])
+            tag_terms.update(family["names"])
+            tag_terms.update(family["tags"])
 
-        # Derived flags — set by build_exclusions from the SAME phrase set
-        # before construction. We expose plain attributes (not properties)
-        # because build_exclusions populates them post-init.
-        self.explicit:     bool   = False
-        self.vibe_filters: list   = []
+        self.keywords = typed
+        self.genre_terms = genre_terms
+        self.families = [family["names"][0] for family in families]
+        self._text_re = _compile(text_terms, _exact_pattern)
+        self._tag_re = _compile(tag_terms, _loose_pattern)
+        self.explicit: bool = False
+        self.vibe_filters: list = []
 
     def __bool__(self) -> bool:
-        # Any of the three signals — keyword, explicit-flag, vibe-filter —
-        # makes this exclusion set "active" enough to be worth applying.
         return bool(self.keywords) or self.explicit or bool(self.vibe_filters)
 
+    @property
+    def requires_genre_tags(self) -> bool:
+        return bool(self.genre_terms)
+
     def text_matches(self, *fields: str) -> bool:
-        """True if any keyword appears (word-bounded) in the supplied fields."""
-        if not self._kw_res:
+        if not self._text_re:
             return False
-        blob = " ".join(f for f in fields if f).lower()
-        if not blob:
-            return False
-        return any(rx.search(blob) for rx in self._kw_res)
+        return any(f and self._text_re.search(_norm(f)) for f in fields)
 
     def matches_any_genre_tag(self, tags: Optional[Iterable[str]]) -> bool:
-        """
-        True if ANY supplied Spotify genre tag string contains ANY keyword,
-        after collapsing hyphens/whitespace on both sides. So a user keyword
-        "kpop" hits Spotify's tag "k-pop", "lofi" hits "lo-fi", "hindi pop"
-        hits "hindi-pop" / "hindipop", etc.
-        """
-        if not self._keywords_squished or not tags:
+        if not self._tag_re or not tags:
             return False
-        for tag in tags:
-            if not tag:
-                continue
-            sq = _squish(tag)
-            if sq and any(k in sq for k in self._keywords_squished):
-                return True
-        return False
+        return any(tag and self._tag_re.search(_norm(tag)) for tag in tags)
 
     def matches_query_text(self, query: str) -> bool:
-        """
-        Substring match against a single search query string, using the same
-        squish-normalised compare so "kpop" suppresses queries containing
-        "k-pop" or "k pop".
-        """
-        if not self._keywords_squished or not query:
+        if not self._tag_re or not query:
             return False
-        sq = _squish(query)
-        if not sq:
-            return False
-        return any(k in sq for k in self._keywords_squished)
+        return bool(self._tag_re.search(_norm(query)))
 
 
 def build_exclusions(disliked_genres: Optional[Iterable[str]],
                      mood_text: str,
-                     explicit_filter: bool = False) -> tuple[Exclusions, str]:
-    """
-    Build an Exclusions set from two strictness levels plus an out-of-band
-    explicit flag from the UI checkbox:
-
-      1. `disliked_genres` (explicit textbox / quiz step) — STRICT. Every
-         phrase is honoured verbatim as a keyword.
-      2. `mood_text` — LOOSE. Only phrases lifted by `parse_dislikes_from_text`
-         from clear "I hate X" / "no X" / "anything but X" phrasings.
-      3. `explicit_filter` (UI checkbox) — forces the explicit drop on
-         regardless of typed phrases.
-
-    Also auto-detects explicit triggers and vibe words inside the typed
-    phrases so users who write "no swearing" or "nothing sad" don't need
-    to know about the dedicated controls.
-
-    Returns (Exclusions, cleaned_mood_text).
-    """
-    keywords: list[str] = []
-
-    for g in (disliked_genres or []):
-        if g and isinstance(g, str):
-            keywords.append(g)
+                     explicit_filter: bool = False,
+                     extra_texts: Optional[Iterable[str]] = None) -> tuple[Exclusions, str]:
+    keywords: list[str] = [
+        g for g in (disliked_genres or []) if g and isinstance(g, str)
+    ]
 
     text_phrases, cleaned = parse_dislikes_from_text(mood_text)
     keywords.extend(text_phrases)
+    for extra in (extra_texts or []):
+        extra_phrases, _ = parse_dislikes_from_text(extra)
+        keywords.extend(extra_phrases)
 
     excl = Exclusions(keywords)
-    excl.explicit     = bool(explicit_filter) or _contains_explicit_trigger(keywords)
+    excl.explicit = bool(explicit_filter) or _contains_explicit_trigger(keywords)
     excl.vibe_filters = _detect_vibe_filters(keywords)
 
     if excl.keywords:
-        logger.info(f"[DISLIKE] active keywords={sorted(excl.keywords)}")
+        logger.info(
+            f"[DISLIKE] active keywords={sorted(excl.keywords)} families={excl.families}"
+        )
     if excl.explicit:
         logger.info("[DISLIKE] explicit-content filter active")
     if excl.vibe_filters:
@@ -358,25 +477,21 @@ def build_exclusions(disliked_genres: Optional[Iterable[str]],
 
 
 def make_track_filter(excl: Optional[Exclusions]) -> Callable[[dict], bool]:
-    """
-    Returns predicate(track) -> True if the track should be KEPT.
-    Only uses metadata text (title/artist/album). The richer artist-genre-tag
-    check happens in spotify.py once we've batched the artist lookup.
-    """
     if not excl:
         return lambda _t: True
 
     def keep(track: dict) -> bool:
-        # Explicit drop first — cheapest check, no string scan.
         if excl.explicit and bool(track.get("explicit")):
             return False
-        title  = track.get("title") or track.get("name") or ""
+        title = track.get("title") or track.get("name") or ""
         artist = track.get("artist") or ""
-        if not artist and track.get("artists"):
+        raw_artists = track.get("artists")
+        if isinstance(raw_artists, list):
             try:
-                artist = ", ".join(a.get("name", "") for a in track["artists"])
+                names = ", ".join(a.get("name", "") for a in raw_artists)
+                artist = f"{artist}, {names}" if artist else names
             except Exception:
-                artist = ""
+                pass
         album = ""
         alb = track.get("album")
         if isinstance(alb, dict):
@@ -389,23 +504,18 @@ def make_track_filter(excl: Optional[Exclusions]) -> Callable[[dict], bool]:
 
 
 def feature_in_drop_range(features: dict, ranges: list) -> bool:
-    """True if a track's audio-features dict falls inside ANY of the supplied
-    drop-ranges. Used by spotify._filter_by_audio_features after a batched
-    `/v1/audio-features` lookup. Each range is (val_lo, val_hi, en_lo, en_hi);
-    None bounds are unconstrained on that axis.
-    """
     if not features or not ranges:
         return False
     val = features.get("valence")
-    en  = features.get("energy")
+    en = features.get("energy")
     if val is None and en is None:
         return False
     for (val_lo, val_hi, en_lo, en_hi) in ranges:
         ok = True
         if val_lo is not None and (val is None or val < val_lo): ok = False
         if val_hi is not None and (val is None or val > val_hi): ok = False
-        if en_lo  is not None and (en  is None or en  < en_lo):  ok = False
-        if en_hi  is not None and (en  is None or en  > en_hi):  ok = False
+        if en_lo is not None and (en is None or en < en_lo): ok = False
+        if en_hi is not None and (en is None or en > en_hi): ok = False
         if ok:
             return True
     return False
