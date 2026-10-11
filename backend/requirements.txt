@@ -6,7 +6,6 @@ requests
 psycopg2-binary
 google-auth
 bcrypt
-email-validator
 Pillow
 spotipy
 ytmusicapi

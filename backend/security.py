@@ -142,8 +142,6 @@ REQUIRED_SECRETS = [
     "SPOTIFY_CLIENT_SECRET",
     "SPOTIFY_REDIRECT_URI",
     "SPOTIFY_SCOPES",
-    "GMAIL_USER",
-    "GMAIL_APP_PASSWORD",
     "SESSION_SECRET",
     "UNSPLASH_ACCESS_KEY",
 ]
@@ -263,13 +261,6 @@ def _start_cleanup_scheduler() -> None:
 _start_cleanup_scheduler()
 
 _RATE_RULES: dict[str, tuple[int, int]] = {
-    "/api/signin":             (10,  60),
-    "/api/signup":             (5,  300),
-    "/api/verify-email":       (10,  60),
-    "/api/resend-verify-code": (3,  300),
-    "/api/forgot-password":    (5,  300),
-    "/api/verify-reset-code":  (10,  60),
-    "/api/reset-password":     (10,  60),
     "/api/auth/firebase":      (10,  60),
     "/api/create-playlist":    (30,  60),
     "/api/add-tracks":         (30,  60),
@@ -354,13 +345,6 @@ _BLOCKED_UA_RE = re.compile(
 )
 
 _AUTH_PATHS = frozenset({
-    "/api/signin",
-    "/api/signup",
-    "/api/verify-email",
-    "/api/resend-verify-code",
-    "/api/forgot-password",
-    "/api/verify-reset-code",
-    "/api/reset-password",
     "/api/auth/firebase",
 })
 

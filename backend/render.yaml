@@ -24,21 +24,9 @@ services:
         sync: false
       - key: UNSPLASH_ACCESS_KEY
         sync: false
-      - key: GMAIL_USER
-        sync: false
-      - key: GMAIL_APP_PASSWORD
-        sync: false
       - key: FRONTEND_URL
         sync: false
       - key: CORS_ORIGINS
         sync: false
-      - key: RESEND_API_KEY
-        sync: false
-      - key: RESEND_FROM
-        sync: false
-      - key: BREVO_API_KEY
-        sync: false
-      - key: BREVO_FROM_EMAIL
-        sync: false
-      - key: BREVO_FROM_NAME
+      - key: FIREBASE_PROJECT_ID
         sync: false

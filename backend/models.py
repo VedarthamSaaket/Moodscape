@@ -1,15 +1,7 @@
 from typing import Optional
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 
-
-class UserCreate(BaseModel):
-    email:    EmailStr
-    password: str
-
-class UserLogin(BaseModel):
-    email:    EmailStr
-    password: str
 
 class FirebaseSignin(BaseModel):
     id_token: str
@@ -76,25 +68,6 @@ class SuggestionsRequest(BaseModel):
 
 class MoodRequest(BaseModel):
     text: str
-
-class VerifyEmail(BaseModel):
-    email: EmailStr
-    code:  str
-
-class ResendCode(BaseModel):
-    email: EmailStr
-
-class ForgotPassword(BaseModel):
-    email:  EmailStr
-    method: str = "link"   # "link" (emailed reset link) or "code" (6-digit OTP)
-
-class VerifyResetCode(BaseModel):
-    email: EmailStr
-    code:  str
-
-class ResetPassword(BaseModel):
-    resetToken:  str
-    newPassword: str
 
 class AddTracksRequest(BaseModel):
     playlist_id: str

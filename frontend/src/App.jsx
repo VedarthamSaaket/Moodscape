@@ -5,9 +5,6 @@ import GeneratorLayout from './components/GeneratorLayout';
 import ProtectedRoute from './components/ProtectedRoute';
 import HomePage from './pages/HomePage';
 import SignInPage from './pages/SignInPage';
-import SignUpPage from './pages/SignUpPage';
-import VerifyEmailPage from './pages/VerifyEmailPage';
-import ForgotPasswordPage from './pages/ForgotPasswordPage';
 import GeneratorPage from './pages/GeneratorPage';
 import StudioPage from './pages/StudioPage';
 import SavedPage from './pages/SavedPage';
@@ -28,9 +25,6 @@ function App() {
           <Route path="/" element={<Layout />}>
             <Route index element={<HomePage />} />
             <Route path="signin" element={<SignInPage />} />
-            <Route path="signup" element={<SignUpPage />} />
-            <Route path="verify-email" element={<VerifyEmailPage />} />
-            <Route path="forgot-password" element={<ForgotPasswordPage />} />
           </Route>
           <Route element={<ProtectedRoute />}>
             <Route path="/generator" element={<GeneratorLayout />}>

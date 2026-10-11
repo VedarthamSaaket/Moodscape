@@ -436,7 +436,7 @@ export default function HomePage() {
           <div style={{ marginTop: '38px', display: 'flex', gap: '10px', animation: 'heroIn 1.0s cubic-bezier(0.16,1,0.3,1) 0.5s both' }}>
             {isLoggedIn
               ? <Link to="/generator" className="btn-gold">Enter</Link>
-              : <><Link to="/signup" className="btn-gold">Begin</Link><Link to="/signin" className="btn-ghost">Sign In</Link></>
+              : <Link to="/signin" className="btn-gold">Begin</Link>
             }
           </div>
 
@@ -756,7 +756,7 @@ export default function HomePage() {
             <div style={{ display: 'flex', gap: '10px', position: 'relative', zIndex: 1 }}>
               {isLoggedIn
                 ? <Link to="/generator" className="btn-gold">Enter</Link>
-                : <><Link to="/signup" className="btn-gold">Get Started</Link><Link to="/signin" className="btn-ghost">Sign In</Link></>
+                : <Link to="/signin" className="btn-gold">Get Started</Link>
               }
             </div>
             <div style={{ marginTop: '56px', display: 'flex', alignItems: 'center', gap: '12px', position: 'relative', zIndex: 1 }}>
