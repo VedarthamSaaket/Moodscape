@@ -2,7 +2,7 @@ import { ARCHETYPES, AXES, QUESTIONS } from './quizData.js';
 
 const NEUTRAL_ID = 'normal';
 const SOFTMAX_TAU = 0.22;
-const INTENSITY_SCALE = 1.0;
+const INTENSITY_SCALE = 2.25;
 const MODEL_WEIGHT = 0.55;
 const BLEND_RATIO = 0.8;
 const CONFIDENCE_FLOOR = 76;
