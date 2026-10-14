@@ -29,6 +29,7 @@ from models import (
 from exclusions import build_exclusions, parse_dislikes_from_text
 from sound_seeds import detect_sound_seeds
 from curation import plan_playlist
+from mood_fit import OVERSAMPLE, rerank
 
 router = APIRouter()
 
@@ -291,7 +292,8 @@ def create_playlist(data: PlaylistRequest, request: Request):
         # industry's language (~60% if multi-lang selected, 100% if only that
         # industry's language is in the language list). Else fall back to the
         # standard multi-language even split.
-        fill_count = max(0, track_count - len(all_tracks))
+        anchored = len(all_tracks)
+        fill_count = max(0, round(track_count * OVERSAMPLE) - anchored)
         if fill_count > 0:
             industry_lang_key = (data.filmIndustry or "").strip().lower()
             from config import FILM_INDUSTRY_MAP, INDIAN_LANGUAGES, LANGUAGE_ALIASES
@@ -368,6 +370,8 @@ def create_playlist(data: PlaylistRequest, request: Request):
                     if uri:
                         track_uris.append(uri)
                         all_tracks.append(t)
+
+        all_tracks, track_uris = rerank(all_tracks, track_uris, mood_profile, max(track_count, anchored), anchored)
 
         # ── Pinned songs from the post-quiz suggestions ──────────────────────
         # Added FIRST and verbatim, regardless of the mood/genre/language menu.
