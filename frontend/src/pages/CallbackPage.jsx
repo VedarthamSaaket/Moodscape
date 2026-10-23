@@ -30,6 +30,14 @@ function CallbackPage() {
 
     if (error) { navigate('/generator'); return; }
 
+    if (spotifyAuthStatus || code) {
+      const state = searchParams.get('state');
+      if (!state || state !== sessionStorage.getItem('spotify_oauth_state')) {
+        navigate('/generator');
+        return;
+      }
+    }
+
     if (spotifyAuthStatus) {
       if (spotifyAuthStatus === 'success') {
         // Backend redirected here after exchanging the code. Tokens are in the
