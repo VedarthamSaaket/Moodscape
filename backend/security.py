@@ -4,6 +4,7 @@ import time
 import hmac
 import json
 import hashlib
+import ipaddress
 import logging
 import threading
 from collections import defaultdict
@@ -318,14 +319,44 @@ AUTH_FAIL_MAX    = 20
 AUTH_FAIL_WINDOW = 120
 IP_BLOCK_SECS    = 600
 
+_PROXY_NETWORKS = [
+    ipaddress.ip_network(cidr)
+    for cidr in (
+        "173.245.48.0/20", "103.21.244.0/22", "103.22.200.0/22", "103.31.4.0/22",
+        "141.101.64.0/18", "108.162.192.0/18", "190.93.240.0/20", "188.114.96.0/20",
+        "197.234.240.0/22", "198.41.128.0/17", "162.158.0.0/15", "104.16.0.0/13",
+        "104.24.0.0/14", "172.64.0.0/13", "131.0.72.0/22",
+        "2400:cb00::/32", "2606:4700::/32", "2803:f800::/32", "2405:b500::/32",
+        "2405:8100::/32", "2a06:98c0::/29", "2c0f:f248::/32",
+    )
+]
+
+
+def _parse_ip(value: str):
+    try:
+        return ipaddress.ip_address(value.strip().strip("[]"))
+    except ValueError:
+        return None
+
+
+def _is_proxy_hop(ip) -> bool:
+    return (
+        ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved
+        or any(ip in network for network in _PROXY_NETWORKS)
+    )
+
+
 def get_client_ip(request: Request) -> str:
-    forwarded = [part.strip() for part in request.headers.get("X-Forwarded-For", "").split(",") if part.strip()]
-    hops = os.getenv("TRUSTED_PROXY_HOPS", "").strip()
-    if forwarded and hops.isdigit() and int(hops) > 0:
-        return forwarded[max(len(forwarded) - int(hops), 0)]
-    if forwarded:
-        return forwarded[0]
-    return request.client.host if request.client else "unknown"
+    peer = request.client.host if request.client else "unknown"
+    peer_ip = _parse_ip(peer)
+    if peer_ip is None or not _is_proxy_hop(peer_ip):
+        return peer
+    for value in reversed(request.headers.get("X-Forwarded-For", "").split(",")):
+        ip = _parse_ip(value)
+        if ip is None or ip == peer_ip or _is_proxy_hop(ip):
+            continue
+        return str(ip)
+    return peer
 
 def record_auth_failure(ip: str) -> None:
     now = time.time()
