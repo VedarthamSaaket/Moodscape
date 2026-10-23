@@ -282,14 +282,28 @@ _RATE_RULES: dict[str, tuple[int, int]] = {
     "/api/saint/record":       (30,  60),
 }
 
+SIGNED_IN_LIMIT_MULTIPLIER = 3
+
+def _session_email(request: Request) -> Optional[str]:
+    token = request.headers.get("X-Session-Token", "").strip()
+    if not token:
+        return None
+    try:
+        return verify_session_token(token)
+    except HTTPException:
+        return None
+
 def check_rate_limit(request: Request) -> None:
     rule = _RATE_RULES.get(request.url.path)
     if not rule:
         return
-    ip  = get_client_ip(request)
-    key = f"{ip}:{request.url.path}"
-    if not limiter.is_allowed(key, rule[0], rule[1]):
-        logger.warning(f"[RATELIMIT] {ip} exceeded limit on {request.url.path}")
+    ip    = get_client_ip(request)
+    email = _session_email(request)
+    who   = f"user:{email}" if email else f"ip:{ip}"
+    limit = rule[0] * SIGNED_IN_LIMIT_MULTIPLIER if email else rule[0]
+    key   = f"{who}:{request.url.path}"
+    if not limiter.is_allowed(key, limit, rule[1]):
+        logger.warning(f"[RATELIMIT] {who} exceeded limit on {request.url.path}")
         raise HTTPException(status_code=429, detail="Too many requests. Please slow down.")
 
 
@@ -305,9 +319,12 @@ AUTH_FAIL_WINDOW = 120
 IP_BLOCK_SECS    = 600
 
 def get_client_ip(request: Request) -> str:
-    forwarded = request.headers.get("X-Forwarded-For", "")
+    forwarded = [part.strip() for part in request.headers.get("X-Forwarded-For", "").split(",") if part.strip()]
+    hops = os.getenv("TRUSTED_PROXY_HOPS", "").strip()
+    if forwarded and hops.isdigit() and int(hops) > 0:
+        return forwarded[max(len(forwarded) - int(hops), 0)]
     if forwarded:
-        return forwarded.split(",")[0].strip()
+        return forwarded[0]
     return request.client.host if request.client else "unknown"
 
 def record_auth_failure(ip: str) -> None:
