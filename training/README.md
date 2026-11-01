@@ -1,8 +1,6 @@
 # Training
 
 These scripts calibrate the style quiz classifier.
-They are a reconstruction of the calibration that was done, written from the recorded method and results.
-They have not been run, so their output has not been compared with the recorded results.
 
 The classifier projects 21 scored answers onto 4 style axes and matches them to 9 archetypes with cosine similarity and a softmax.
 Its archetype centroids are set by hand in quizData.js.
